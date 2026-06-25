@@ -1,0 +1,560 @@
+package templates
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+	"testing/fstest"
+	"text/template"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// TestWithMissingKey tests expected behavior.
+func TestWithMissingKey(t *testing.T) {
+	t.Parallel()
+
+	cfg := options{}
+	WithMissingKey(MissingKeyDefault)(&cfg)
+	assert.Equal(t, MissingKeyDefault, cfg.missingKey)
+}
+
+// TestNew tests expected behavior.
+func TestNew(t *testing.T) {
+	t.Parallel()
+
+	files := fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}}
+	registry := New(files)
+	assert.NotNil(t, registry.files)
+}
+
+// TestFuncMap tests expected behavior.
+func TestFuncMap(t *testing.T) {
+	t.Parallel()
+
+	funcs := FuncMap()
+	assert.NotEmpty(t, funcs)
+	assert.Contains(t, funcs, "json")
+}
+
+// TestIsBuiltin tests expected behavior.
+func TestIsBuiltin(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matches builtin prefix", func(t *testing.T) {
+		t.Parallel()
+
+		assert.True(t, IsBuiltin(" builtin:slack "))
+	})
+
+	t.Run("rejects file path", func(t *testing.T) {
+		t.Parallel()
+
+		assert.False(t, IsBuiltin("slack.tmpl"))
+	})
+}
+
+// TestName tests expected behavior.
+func TestName(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, "slack", Name(" builtin:slack "))
+}
+
+// TestTemplatesRead tests expected behavior.
+func TestTemplatesRead(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reads builtin template", func(t *testing.T) {
+		t.Parallel()
+
+		registry := New(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}})
+		name, body, err := registry.Read("builtin:hello")
+		require.NoError(t, err)
+		assert.Equal(t, "hello.tmpl", name)
+		assert.Equal(t, "hello", body)
+	})
+
+	t.Run("requires name", func(t *testing.T) {
+		t.Parallel()
+
+		registry := New(fstest.MapFS{})
+		_, _, err := registry.Read("builtin:")
+		require.Error(t, err)
+	})
+
+	t.Run("rejects path separators", func(t *testing.T) {
+		t.Parallel()
+
+		registry := New(fstest.MapFS{})
+		_, _, err := registry.Read("builtin:../secret")
+		require.Error(t, err)
+	})
+
+	t.Run("requires configured filesystem", func(t *testing.T) {
+		t.Parallel()
+
+		_, _, err := New(nil).Read("builtin:hello")
+		require.Error(t, err)
+	})
+
+	t.Run("wraps read errors", func(t *testing.T) {
+		t.Parallel()
+
+		_, _, err := New(fstest.MapFS{}).Read("builtin:missing")
+		require.Error(t, err)
+	})
+}
+
+// TestTemplatesExists tests expected behavior.
+func TestTemplatesExists(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns nil when template exists", func(t *testing.T) {
+		t.Parallel()
+
+		registry := New(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}})
+		err := registry.Exists("builtin:hello")
+		require.NoError(t, err)
+	})
+
+	t.Run("returns read error", func(t *testing.T) {
+		t.Parallel()
+
+		registry := New(fstest.MapFS{})
+		err := registry.Exists("builtin:missing")
+		require.Error(t, err)
+	})
+}
+
+// TestTemplatesNames tests expected behavior.
+func TestTemplatesNames(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns sorted template names", func(t *testing.T) {
+		t.Parallel()
+
+		registry := New(fstest.MapFS{
+			"z.tmpl":     {Data: []byte("z")},
+			"a.tmpl":     {Data: []byte("a")},
+			"skip.txt":   {Data: []byte("skip")},
+			"dir/x.tmpl": {Data: []byte("x")},
+		})
+		assert.Equal(t, []string{"a", "z"}, registry.Names())
+	})
+
+	t.Run("returns nil without filesystem", func(t *testing.T) {
+		t.Parallel()
+		assert.Nil(t, New(nil).Names())
+	})
+}
+
+// TestLoad tests expected behavior.
+func TestLoad(t *testing.T) {
+	t.Parallel()
+
+	t.Run("loads file template", func(t *testing.T) {
+		t.Parallel()
+
+		path := writeTempTemplate(t, "hello {{ .Name }}")
+		tmpl, err := Load(path)
+		require.NoError(t, err)
+		out, err := tmpl.Render(map[string]any{"Name": "world"})
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", string(out))
+	})
+
+	t.Run("requires path", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := Load("")
+		require.Error(t, err)
+		assert.Nil(t, tmpl)
+	})
+
+	t.Run("returns read error", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := Load(filepath.Join(t.TempDir(), "missing.tmpl"))
+		require.Error(t, err)
+		assert.Nil(t, tmpl)
+	})
+}
+
+// TestLoadFromFS tests expected behavior.
+func TestLoadFromFS(t *testing.T) {
+	t.Parallel()
+
+	t.Run("loads template from filesystem", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := LoadFromFS(fstest.MapFS{"hello.tmpl": {Data: []byte("hello {{ .Name }}")}}, "hello.tmpl")
+		require.NoError(t, err)
+		out, err := tmpl.Render(map[string]any{"Name": "world"})
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", string(out))
+	})
+
+	t.Run("requires path", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := LoadFromFS(fstest.MapFS{}, "")
+		require.Error(t, err)
+		assert.Nil(t, tmpl)
+	})
+
+	t.Run("returns open error", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := LoadFromFS(fstest.MapFS{}, "missing.tmpl")
+		require.Error(t, err)
+		assert.Nil(t, tmpl)
+	})
+}
+
+// TestLoadSource tests expected behavior.
+func TestLoadSource(t *testing.T) {
+	t.Parallel()
+
+	t.Run("loads builtin source", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := LoadSource(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}}, "builtin:hello")
+		require.NoError(t, err)
+		out, err := tmpl.Render(nil)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", string(out))
+	})
+
+	t.Run("loads file source", func(t *testing.T) {
+		t.Parallel()
+
+		path := writeTempTemplate(t, "hello")
+		tmpl, err := LoadSource(nil, path)
+		require.NoError(t, err)
+		out, err := tmpl.Render(nil)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", string(out))
+	})
+}
+
+// TestReadSource tests expected behavior.
+func TestReadSource(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reads builtin source", func(t *testing.T) {
+		t.Parallel()
+
+		name, body, err := ReadSource(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}}, "builtin:hello")
+		require.NoError(t, err)
+		assert.Equal(t, "hello.tmpl", name)
+		assert.Equal(t, "hello", body)
+	})
+
+	t.Run("reads file source", func(t *testing.T) {
+		t.Parallel()
+
+		path := writeTempTemplate(t, "hello")
+		name, body, err := ReadSource(nil, path)
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Base(path), name)
+		assert.Equal(t, "hello", body)
+	})
+
+	t.Run("requires source", func(t *testing.T) {
+		t.Parallel()
+
+		_, _, err := ReadSource(nil, "")
+		require.Error(t, err)
+	})
+}
+
+// TestParseSource tests expected behavior.
+func TestParseSource(t *testing.T) {
+	t.Parallel()
+
+	t.Run("parses source", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := ParseSource(fstest.MapFS{"hello.tmpl": {Data: []byte("hello {{ .Name }}")}}, "builtin:hello")
+		require.NoError(t, err)
+		out, err := Execute(parsed, map[string]any{"Name": "world"})
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", out)
+	})
+
+	t.Run("wraps parse error", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := ParseSource(
+			fstest.MapFS{
+				"bad.tmpl": {Data: []byte("{{")},
+			},
+			"builtin:bad",
+		)
+		require.Error(t, err)
+		assert.Nil(t, parsed)
+	})
+}
+
+// TestParse tests expected behavior.
+func TestParse(t *testing.T) {
+	t.Parallel()
+
+	t.Run("parses template", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := Parse("hello", "hello {{ .Name }}")
+		require.NoError(t, err)
+		out, err := Execute(parsed, map[string]any{"Name": "world"})
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", out)
+	})
+
+	t.Run("uses strict missing key by default", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := Parse("hello", "{{ .Missing }}")
+		require.NoError(t, err)
+		_, err = Execute(parsed, map[string]any{})
+		require.Error(t, err)
+	})
+
+	t.Run("allows default missing key behavior", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := Parse("hello", "{{ .Missing }}", WithMissingKey(MissingKeyDefault))
+		require.NoError(t, err)
+		out, err := Execute(parsed, map[string]any{})
+		require.NoError(t, err)
+		assert.Equal(t, "<no value>", out)
+	})
+
+	t.Run("rejects invalid missing key policy", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := Parse("hello", "hello", WithMissingKey(MissingKey("bad")))
+		require.Error(t, err)
+		assert.Nil(t, parsed)
+	})
+}
+
+// TestParseTemplate tests expected behavior.
+func TestParseTemplate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("parses byte template", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := ParseTemplate("hello", "hello")
+		require.NoError(t, err)
+		out, err := tmpl.Render(nil)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", string(out))
+	})
+
+	t.Run("requires input", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := ParseTemplate("hello", "")
+		require.Error(t, err)
+		assert.Nil(t, tmpl)
+	})
+}
+
+// TestParseStringTemplate tests expected behavior.
+func TestParseStringTemplate(t *testing.T) {
+	t.Parallel()
+
+	t.Run("parses string template", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := ParseStringTemplate("hello", "hello")
+		require.NoError(t, err)
+		out, err := tmpl.Render(nil)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", out)
+	})
+
+	t.Run("requires input", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := ParseStringTemplate("hello", "")
+		require.Error(t, err)
+		assert.Nil(t, tmpl)
+	})
+}
+
+// TestLoadString tests expected behavior.
+func TestLoadString(t *testing.T) {
+	t.Parallel()
+
+	t.Run("loads string template from file", func(t *testing.T) {
+		t.Parallel()
+
+		path := writeTempTemplate(t, "hello {{ .Name }}")
+		tmpl, err := LoadString(path)
+		require.NoError(t, err)
+		out, err := tmpl.Render(map[string]any{"Name": "world"})
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", out)
+	})
+
+	t.Run("requires path", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := LoadString("")
+		require.Error(t, err)
+		assert.Nil(t, tmpl)
+	})
+}
+
+// TestLoadStringFromFS tests expected behavior.
+func TestLoadStringFromFS(t *testing.T) {
+	t.Parallel()
+
+	t.Run("loads string template from filesystem", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := LoadStringFromFS(fstest.MapFS{"hello.tmpl": {Data: []byte("hello {{ .Name }}")}}, "hello.tmpl")
+		require.NoError(t, err)
+		out, err := tmpl.Render(map[string]any{"Name": "world"})
+		require.NoError(t, err)
+		assert.Equal(t, "hello world", out)
+	})
+
+	t.Run("requires path", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := LoadStringFromFS(fstest.MapFS{}, "")
+		require.Error(t, err)
+		assert.Nil(t, tmpl)
+	})
+}
+
+// TestExecute tests expected behavior.
+func TestExecute(t *testing.T) {
+	t.Parallel()
+
+	t.Run("executes template", func(t *testing.T) {
+		t.Parallel()
+
+		parsed := template.Must(template.New("hello").Parse("hello"))
+		out, err := Execute(parsed, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", out)
+	})
+
+	t.Run("requires template", func(t *testing.T) {
+		t.Parallel()
+
+		out, err := Execute(nil, nil)
+		require.Error(t, err)
+		assert.Empty(t, out)
+	})
+}
+
+// TestTemplateRender tests expected behavior.
+func TestTemplateRender(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders bytes", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := ParseTemplate("hello", "hello")
+		require.NoError(t, err)
+		out, err := tmpl.Render(nil)
+		require.NoError(t, err)
+		assert.Equal(t, []byte("hello"), out)
+	})
+
+	t.Run("requires template", func(t *testing.T) {
+		t.Parallel()
+
+		var tmpl *Template
+		out, err := tmpl.Render(nil)
+		require.Error(t, err)
+		assert.Nil(t, out)
+	})
+}
+
+// TestStringTemplateRender tests expected behavior.
+func TestStringTemplateRender(t *testing.T) {
+	t.Parallel()
+
+	t.Run("renders string", func(t *testing.T) {
+		t.Parallel()
+
+		tmpl, err := ParseStringTemplate("hello", "hello")
+		require.NoError(t, err)
+		out, err := tmpl.Render(nil)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", out)
+	})
+
+	t.Run("requires template", func(t *testing.T) {
+		t.Parallel()
+
+		var tmpl *StringTemplate
+		out, err := tmpl.Render(nil)
+		require.Error(t, err)
+		assert.Empty(t, out)
+	})
+}
+
+// TestParseOptions tests expected behavior.
+func TestParseOptions(t *testing.T) {
+	t.Parallel()
+
+	t.Run("defaults to missing key error", func(t *testing.T) {
+		t.Parallel()
+
+		cfg, err := parseOptions()
+		require.NoError(t, err)
+		assert.Equal(t, MissingKeyError, cfg.missingKey)
+	})
+
+	t.Run("ignores nil options", func(t *testing.T) {
+		t.Parallel()
+
+		cfg, err := parseOptions(nil)
+		require.NoError(t, err)
+		assert.Equal(t, MissingKeyError, cfg.missingKey)
+	})
+}
+
+// TestValidateMissingKey tests expected behavior.
+func TestValidateMissingKey(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts known policy", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateMissingKey(MissingKeyZero)
+		require.NoError(t, err)
+	})
+
+	t.Run("rejects unknown policy", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateMissingKey(MissingKey("bad"))
+		require.Error(t, err)
+	})
+}
+
+// TestOptionsTemplateOption tests expected behavior.
+func TestOptionsTemplateOption(t *testing.T) {
+	t.Parallel()
+
+	cfg := options{missingKey: MissingKeyZero}
+	assert.Equal(t, "missingkey=zero", cfg.templateOption())
+}
+
+// writeTempTemplate supports tests.
+func writeTempTemplate(t *testing.T, body string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "template.tmpl")
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+	return path
+}

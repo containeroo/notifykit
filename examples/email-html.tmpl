@@ -1,0 +1,145 @@
+{{/* email notification template */}}
+<!doctype html>
+<html lang="en">
+  <body style="margin:0;padding:0;background:#f6f8fa;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;color:#24292f;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f6f8fa;padding:24px 0;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="640" cellspacing="0" cellpadding="0" style="width:640px;max-width:100%;background:#ffffff;border:1px solid #d0d7de;border-radius:10px;overflow:hidden;">
+            <tr>
+              <td style="background:{{ if .Resolved }}#1a7f37{{ else }}#cf222e{{ end }};color:#ffffff;padding:22px 26px;">
+                <p style="margin:0 0 6px;font-size:13px;line-height:1.4;text-transform:uppercase;letter-spacing:.08em;font-weight:700;">
+                  {{ if .Resolved }}Resolved{{ else }}Overdue{{ end }}
+                </p>
+                <h1 style="margin:0;font-size:22px;line-height:1.3;font-weight:700;">
+                  {{ .Subject }}
+                </h1>
+                <p style="margin:8px 0 0;font-size:15px;line-height:1.5;">
+                  {{ if .Resolved }}
+                    Check-in "{{ .CheckInName }}" is healthy again.
+                  {{ else }}
+                    Check-in "{{ .CheckInName }}" did not arrive before the alerting deadline.
+                  {{ end }}
+                </p>
+              </td>
+            </tr>
+
+            <tr>
+              <td style="padding:24px 26px;">
+                <h2 style="margin:0 0 12px;font-size:16px;line-height:1.4;color:#24292f;">
+                  Schedule
+                </h2>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:separate;border-spacing:0 8px;font-size:14px;margin:0 0 22px;">
+                  <tr>
+                    <td style="padding:12px 14px;background:#f6f8fa;border:1px solid #d0d7de;border-radius:8px;width:50%;">
+                      <div style="font-size:12px;line-height:1.4;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Check-in</div>
+                      <div style="margin-top:4px;font-size:16px;line-height:1.4;font-weight:700;color:#24292f;">{{ .CheckInName }}</div>
+                    </td>
+                    <td style="width:12px;"></td>
+                    <td style="padding:12px 14px;background:#f6f8fa;border:1px solid #d0d7de;border-radius:8px;width:50%;">
+                      <div style="font-size:12px;line-height:1.4;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Status</div>
+                      <div style="margin-top:4px;font-size:16px;line-height:1.4;font-weight:700;color:{{ if .Resolved }}#1a7f37{{ else }}#cf222e{{ end }};">{{ .Status }}</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:12px 14px;background:#f6f8fa;border:1px solid #d0d7de;border-radius:8px;width:50%;">
+                      <div style="font-size:12px;line-height:1.4;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Expected every</div>
+                      <div style="margin-top:4px;font-size:16px;line-height:1.4;font-weight:700;color:#24292f;">{{ .ExpectedBy.Sub .LastCheckIn }}</div>
+                    </td>
+                    <td style="width:12px;"></td>
+                    <td style="padding:12px 14px;background:#f6f8fa;border:1px solid #d0d7de;border-radius:8px;width:50%;">
+                      <div style="font-size:12px;line-height:1.4;color:#57606a;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Alerting delay</div>
+                      <div style="margin-top:4px;font-size:16px;line-height:1.4;font-weight:700;color:#24292f;">{{ .AlertingAt.Sub .ExpectedBy }}</div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td colspan="3" style="padding:12px 14px;background:#fff8c5;border:1px solid #eac54f;border-radius:8px;">
+                      <div style="font-size:12px;line-height:1.4;color:#7d4e00;font-weight:600;text-transform:uppercase;letter-spacing:.04em;">Alerting after</div>
+                      <div style="margin-top:4px;font-size:17px;line-height:1.4;font-weight:700;color:#7d4e00;">{{ .AlertingAt.Sub .LastCheckIn }}</div>
+                    </td>
+                  </tr>
+                </table>
+
+                <h2 style="margin:0 0 12px;font-size:16px;line-height:1.4;color:#24292f;">
+                  Timeline
+                </h2>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:14px;">
+                  <tr>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;background:#f6f8fa;font-weight:600;width:210px;">
+                      Last check-in
+                    </td>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;">
+                      {{ .LastCheckIn.Format "2006-01-02 15:04:05 MST" }}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;background:#f6f8fa;font-weight:600;">
+                      Expected by
+                    </td>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;">
+                      {{ .ExpectedBy.Format "2006-01-02 15:04:05 MST" }}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;background:#f6f8fa;font-weight:600;">
+                      Overdue since
+                    </td>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;">
+                      {{ .OverdueSince.Format "2006-01-02 15:04:05 MST" }}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;background:#f6f8fa;font-weight:600;">
+                      Alerting at
+                    </td>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;">
+                      {{ .AlertingAt.Format "2006-01-02 15:04:05 MST" }}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;background:#f6f8fa;font-weight:600;">
+                      {{ if .Resolved }}Resolved at{{ else }}Notified at{{ end }}
+                    </td>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;">
+                      {{ .Now.Format "2006-01-02 15:04:05 MST" }}
+                    </td>
+                  </tr>
+                </table>
+
+                {{ if .App.StatusURL }}
+                <h2 style="margin:22px 0 12px;font-size:16px;line-height:1.4;color:#24292f;">
+                  Status
+                </h2>
+
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-size:14px;">
+                  <tr>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;background:#f6f8fa;font-weight:600;width:210px;">
+                      Status URL
+                    </td>
+                    <td style="padding:11px 12px;border:1px solid #d0d7de;">
+                      <a href="{{ .App.StatusURL }}" style="color:#0969da;text-decoration:none;">{{ .App.StatusURL }}</a>
+                    </td>
+                  </tr>
+                </table>
+                {{ end }}
+
+                <p style="margin:20px 0 0;font-size:13px;line-height:1.5;color:#57606a;">
+                  {{ if .Resolved }}
+                    This message was generated by Overdue after check-ins resumed from an alerting state.
+                  {{ else }}
+                    This message was generated by Overdue because the expected check-in did not arrive before the expected deadline and alerting delay elapsed.
+                  {{ end }}
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>
+
+
+

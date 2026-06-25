@@ -1,0 +1,8 @@
+{
+  "extends": ["config:recommended"],
+  "labels": ["dependency"],
+  "postUpdateOptions": ["gomodTidy"]
+}
+
+
+
