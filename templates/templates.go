@@ -102,13 +102,7 @@ func New(files fs.FS) Templates {
 // templates and documented default behavior. Applications can opt in to
 // additional tmplfuncs helpers with WithFuncs.
 func FuncMap() template.FuncMap {
-	return tmplfuncs.FuncMap(
-		tmplfuncs.JSON,
-		tmplfuncs.Default,
-		tmplfuncs.WithPrefix,
-		tmplfuncs.Optional,
-		tmplfuncs.When,
-	)
+	return tmplfuncs.FuncMap()
 }
 
 // IsBuiltin reports whether source references an embedded built-in template.
