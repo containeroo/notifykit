@@ -33,29 +33,26 @@ push: ## Push tags to remote
 
 ##@ Development
 
-PACKAGES := $(shell go list ./... | grep -v '/examples/')
-
 .PHONY: fmt
 fmt: ## Run go fmt against code.
-	go fmt $(PACKAGES)
+	go fmt ./...
 
 .PHONY: vet
 vet: ## Run go vet against code.
-	go vet $(PACKAGES)
+	go vet ./...
 
 .PHONY: test
 test: fmt vet ## Run unit tests.
-	go test -covermode=atomic -count=1 -parallel=4 -timeout=5m $(PACKAGES)
+	go test -covermode=atomic -count=1 -parallel=4 -timeout=5m ./...
 
 .PHONY: cover
 cover: ## Display test coverage
-	go test -coverprofile=coverage.out -covermode=atomic -count=1 -parallel=4 -timeout=5m $(PACKAGES)
+	go test -coverprofile=coverage.out -covermode=atomic -count=1 -parallel=4 -timeout=5m ./...
 	go tool cover -html=coverage.out
 
 .PHONY: clean
 clean: ## Clean up generated files
 	find . -type f -name '*.out' -delete
-
 
 ##@ General
 

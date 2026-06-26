@@ -9,8 +9,6 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/containeroo/tmplfuncs"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -70,13 +68,13 @@ func TestFuncMap(t *testing.T) {
 	assert.Contains(t, funcs, "optional")
 	assert.Contains(t, funcs, "when")
 
-	assert.NotContains(t, funcs, "coalesce")
-	assert.NotContains(t, funcs, "formatTime")
-	assert.NotContains(t, funcs, "trim")
-	assert.NotContains(t, funcs, "upper")
-	assert.NotContains(t, funcs, "lower")
-	assert.NotContains(t, funcs, "withSuffix")
-	assert.NotContains(t, funcs, "duration")
+	assert.Contains(t, funcs, "coalesce")
+	assert.Contains(t, funcs, "formatTime")
+	assert.Contains(t, funcs, "trim")
+	assert.Contains(t, funcs, "upper")
+	assert.Contains(t, funcs, "lower")
+	assert.Contains(t, funcs, "withSuffix")
+	assert.Contains(t, funcs, "duration")
 }
 
 // TestIsBuiltin tests expected behavior.
@@ -412,14 +410,10 @@ func TestParse(t *testing.T) {
 		assert.Equal(t, "[notifykit]", out)
 	})
 
-	t.Run("uses opt-in tmplfuncs helpers", func(t *testing.T) {
+	t.Run("uses tmplfuncs helpers by default", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := Parse(
-			"hello",
-			`{{ .Duration | duration }}`,
-			WithFuncs(tmplfuncs.FuncMap(tmplfuncs.Duration)),
-		)
+		parsed, err := Parse("hello", `{{ .Duration | duration }}`)
 		require.NoError(t, err)
 
 		out, err := Execute(parsed, map[string]any{"Duration": 90 * time.Second})

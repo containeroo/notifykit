@@ -98,9 +98,8 @@ func New(files fs.FS) Templates {
 
 // FuncMap returns the shared default template helper functions.
 //
-// Notifykit intentionally registers only the helpers used by its built-in
-// templates and documented default behavior. Applications can opt in to
-// additional tmplfuncs helpers with WithFuncs.
+// Notifykit exposes all helpers provided by github.com/containeroo/tmplfuncs by
+// default. Applications can override or extend helpers with WithFunc or WithFuncs.
 func FuncMap() template.FuncMap {
 	return tmplfuncs.FuncMap()
 }

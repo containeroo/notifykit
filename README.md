@@ -350,14 +350,9 @@ tmpl, err := templates.ParseStringTemplate(
 )
 ```
 
-Notifykit uses `github.com/containeroo/tmplfuncs` for its default helpers, but intentionally exposes only a small stable helper set by default. Applications can opt in to additional `tmplfuncs` helpers with `WithFuncs`:
+Notifykit uses `github.com/containeroo/tmplfuncs` for its default helpers and exposes the full `tmplfuncs.FuncMap()` by default. This includes helpers such as `json`, `default`, `coalesce`, `formatTime`, `trim`, `upper`, `lower`, `withPrefix`, `withSuffix`, `optional`, `when`, and `duration`:
 
 ```go
-funcs := templates.WithFuncs(tmplfuncs.FuncMap(
-    tmplfuncs.Duration,
-    tmplfuncs.FormatTime,
-))
-
 body, err := templates.ParseTemplate(
     "webhook",
     `{"text": {{ print
@@ -365,12 +360,11 @@ body, err := templates.ParseTemplate(
         "Expected by: " (.ExpectedBy | formatTime "2006-01-02 15:04:05 MST")
         | json
     }}}`,
-    funcs,
 )
 ```
 
-Applications can also add project-specific template functions with `WithFunc` or `WithFuncs`.
-This is useful for formatting that should not be built into Notifykit itself.
+Applications can add or override project-specific template functions with `WithFunc` or `WithFuncs`.
+This is useful for formatting that should be owned by the application.
 
 ```go
 func formatDuration(d time.Duration) string {
@@ -424,3 +418,5 @@ Notifykit owns only the notification mechanics.
 ## License
 
 This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.
+
+
