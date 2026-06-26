@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"text/template"
@@ -104,10 +105,8 @@ func optionalValue(format string, args ...any) string {
 	if format == "" {
 		return ""
 	}
-	for _, arg := range args {
-		if isEmpty(arg) {
-			return ""
-		}
+	if slices.ContainsFunc(args, isEmpty) {
+		return ""
 	}
 	return fmt.Sprintf(format, args...)
 }
