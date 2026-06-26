@@ -7,6 +7,9 @@ import (
 	"testing"
 	"testing/fstest"
 	"text/template"
+	"time"
+
+	"github.com/containeroo/tmplfuncs"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -59,8 +62,21 @@ func TestFuncMap(t *testing.T) {
 	t.Parallel()
 
 	funcs := FuncMap()
+
 	assert.NotEmpty(t, funcs)
 	assert.Contains(t, funcs, "json")
+	assert.Contains(t, funcs, "default")
+	assert.Contains(t, funcs, "withPrefix")
+	assert.Contains(t, funcs, "optional")
+	assert.Contains(t, funcs, "when")
+
+	assert.NotContains(t, funcs, "coalesce")
+	assert.NotContains(t, funcs, "formatTime")
+	assert.NotContains(t, funcs, "trim")
+	assert.NotContains(t, funcs, "upper")
+	assert.NotContains(t, funcs, "lower")
+	assert.NotContains(t, funcs, "withSuffix")
+	assert.NotContains(t, funcs, "duration")
 }
 
 // TestIsBuiltin tests expected behavior.
@@ -356,6 +372,22 @@ func TestParse(t *testing.T) {
 		assert.Equal(t, "<no value>", out)
 	})
 
+	t.Run("uses default helper functions", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := Parse("hello", `{{ .Channel | default "alertmanager" | withPrefix "#" }} {{ when .Resolved "up" "down" }} {{ optional "%s: %s" .Label .Value }}`)
+		require.NoError(t, err)
+
+		out, err := Execute(parsed, map[string]any{
+			"Channel":  "",
+			"Resolved": true,
+			"Label":    "Status",
+			"Value":    "ok",
+		})
+		require.NoError(t, err)
+		assert.Equal(t, "#alertmanager up Status: ok", out)
+	})
+
 	t.Run("uses custom function", func(t *testing.T) {
 		t.Parallel()
 
@@ -378,6 +410,21 @@ func TestParse(t *testing.T) {
 		out, err := Execute(parsed, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "[notifykit]", out)
+	})
+
+	t.Run("uses opt-in tmplfuncs helpers", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := Parse(
+			"hello",
+			`{{ .Duration | duration }}`,
+			WithFuncs(tmplfuncs.FuncMap(tmplfuncs.Duration)),
+		)
+		require.NoError(t, err)
+
+		out, err := Execute(parsed, map[string]any{"Duration": 90 * time.Second})
+		require.NoError(t, err)
+		assert.Equal(t, "1m30s", out)
 	})
 
 	t.Run("rejects invalid missing key policy", func(t *testing.T) {

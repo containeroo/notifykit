@@ -66,7 +66,7 @@ func main() {
 
     receiver := notify.NewReceiver("ops", target).
         WithRetry(notify.RetryConfig{
-            Count: 2,
+            Count:   2,
             Backoff: time.Second,
         })
 
@@ -165,7 +165,7 @@ receivers := notify.Receivers{
     "ops": {
         Name: "Operations",
         Retry: notify.RetryConfig{
-            Count: 2, // two retries, three total attempts
+            Count:   2, // two retries, three total attempts
             Backoff: time.Second,
         },
         Vars: map[string]any{
@@ -333,7 +333,7 @@ target := email.New(
 
 ## Templates
 
-Templates use Go `text/template` plus Notifykit's built-in helper functions. The default helper map includes `json`, `default`, `withPrefix`, `optional`, and `when`, which are enough for the bundled Slack and email examples.
+Templates use Go `text/template` plus Notifykit's default helper functions. The default helper map includes `json`, `default`, `withPrefix`, `optional`, and `when`, which are enough for the bundled Slack and email examples.
 
 ```go
 subject, err := templates.ParseStringTemplate("subject", `{{ .Service }} is {{ .Status }}`)
@@ -350,8 +350,27 @@ tmpl, err := templates.ParseStringTemplate(
 )
 ```
 
-Applications can add their own template functions with `WithFunc` or `WithFuncs`.
-This is useful for application-specific formatting that should not be built into Notifykit itself.
+Notifykit uses `github.com/containeroo/tmplfuncs` for its default helpers, but intentionally exposes only a small stable helper set by default. Applications can opt in to additional `tmplfuncs` helpers with `WithFuncs`:
+
+```go
+funcs := templates.WithFuncs(tmplfuncs.FuncMap(
+    tmplfuncs.Duration,
+    tmplfuncs.FormatTime,
+))
+
+body, err := templates.ParseTemplate(
+    "webhook",
+    `{"text": {{ print
+        "Expected every: " (.ExpectedEvery | duration) "\n"
+        "Expected by: " (.ExpectedBy | formatTime "2006-01-02 15:04:05 MST")
+        | json
+    }}}`,
+    funcs,
+)
+```
+
+Applications can also add project-specific template functions with `WithFunc` or `WithFuncs`.
+This is useful for formatting that should not be built into Notifykit itself.
 
 ```go
 func formatDuration(d time.Duration) string {
@@ -387,7 +406,7 @@ Run the full local check suite with:
 make test
 ```
 
-This runs `go fmt`, `go vet`, and `go test -covermode=atomic ./...`.
+This runs `go fmt`, `go vet`, and `go test -covermode=atomic` for all non-example packages.
 
 ## Application boundary
 
@@ -402,4 +421,6 @@ Keep these parts in your application:
 
 Notifykit owns only the notification mechanics.
 
+## License
 
+This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.

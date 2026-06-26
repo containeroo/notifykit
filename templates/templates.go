@@ -2,7 +2,6 @@ package templates
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,11 +10,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"reflect"
-	"slices"
 	"sort"
 	"strings"
 	"text/template"
+
+	"github.com/containeroo/tmplfuncs"
 )
 
 const (
@@ -97,107 +96,19 @@ func New(files fs.FS) Templates {
 	return Templates{files: files}
 }
 
-// FuncMap returns the shared template helper functions.
+// FuncMap returns the shared default template helper functions.
+//
+// Notifykit intentionally registers only the helpers used by its built-in
+// templates and documented default behavior. Applications can opt in to
+// additional tmplfuncs helpers with WithFuncs.
 func FuncMap() template.FuncMap {
-	return template.FuncMap{
-		"default":    defaultValue,
-		"json":       jsonValue,
-		"optional":   optionalValue,
-		"when":       whenValue,
-		"withPrefix": withPrefix,
-	}
-}
-
-// defaultValue returns fallback when value is empty.
-func defaultValue(fallback, value any) any {
-	if isEmpty(value) {
-		return fallback
-	}
-	return value
-}
-
-// jsonValue renders value as a JSON string suitable for template output.
-func jsonValue(value any) (string, error) {
-	data, err := json.Marshal(value)
-	if err != nil {
-		return "", err
-	}
-	return string(data), nil
-}
-
-// optionalValue formats text only when every argument is non-empty.
-func optionalValue(format string, args ...any) string {
-	if format == "" {
-		return ""
-	}
-	if slices.ContainsFunc(args, isEmpty) {
-		return ""
-	}
-	return fmt.Sprintf(format, args...)
-}
-
-// whenValue returns trueValue when condition is truthy, otherwise falseValue.
-func whenValue(condition, trueValue, falseValue any) any {
-	if isTruthy(condition) {
-		return trueValue
-	}
-	return falseValue
-}
-
-// withPrefix prepends prefix unless value already starts with it.
-func withPrefix(prefix, value string) string {
-	if value == "" || prefix == "" || strings.HasPrefix(value, prefix) {
-		return value
-	}
-	return prefix + value
-}
-
-// isTruthy reports whether value should be treated as true in helpers.
-func isTruthy(value any) bool {
-	if value == nil {
-		return false
-	}
-	rv := reflect.ValueOf(value)
-	switch rv.Kind() {
-	case reflect.Bool:
-		return rv.Bool()
-	case reflect.String, reflect.Array, reflect.Chan, reflect.Map, reflect.Slice:
-		return rv.Len() > 0
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return rv.Int() != 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return rv.Uint() != 0
-	case reflect.Float32, reflect.Float64:
-		return rv.Float() != 0
-	case reflect.Interface, reflect.Pointer:
-		return !rv.IsNil() && isTruthy(rv.Elem().Interface())
-	default:
-		return true
-	}
-}
-
-// isEmpty reports whether value is the zero value used by template helpers.
-func isEmpty(value any) bool {
-	if value == nil {
-		return true
-	}
-	rv := reflect.ValueOf(value)
-	switch rv.Kind() {
-	case reflect.Array, reflect.Chan, reflect.Map, reflect.Slice, reflect.String:
-		return rv.Len() == 0
-	case reflect.Bool:
-		return !rv.Bool()
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return rv.Int() == 0
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-		return rv.Uint() == 0
-	case reflect.Float32, reflect.Float64:
-		return rv.Float() == 0
-	case reflect.Interface, reflect.Pointer:
-		return rv.IsNil()
-	default:
-		return reflect.DeepEqual(value, reflect.Zero(rv.Type()).Interface())
-	}
+	return tmplfuncs.FuncMap(
+		tmplfuncs.JSON,
+		tmplfuncs.Default,
+		tmplfuncs.WithPrefix,
+		tmplfuncs.Optional,
+		tmplfuncs.When,
+	)
 }
 
 // IsBuiltin reports whether source references an embedded built-in template.
