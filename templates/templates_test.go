@@ -3,6 +3,7 @@ package templates
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"text/template"
@@ -18,6 +19,30 @@ func TestWithMissingKey(t *testing.T) {
 	cfg := options{}
 	WithMissingKey(MissingKeyDefault)(&cfg)
 	assert.Equal(t, MissingKeyDefault, cfg.missingKey)
+}
+
+// TestWithFunc tests expected behavior.
+func TestWithFunc(t *testing.T) {
+	t.Parallel()
+
+	cfg := options{}
+	WithFunc("upper", strings.ToUpper)(&cfg)
+
+	assert.Contains(t, cfg.funcs, "upper")
+}
+
+// TestWithFuncs tests expected behavior.
+func TestWithFuncs(t *testing.T) {
+	t.Parallel()
+
+	funcs := template.FuncMap{"upper": strings.ToUpper}
+	cfg := options{}
+
+	WithFuncs(funcs)(&cfg)
+	funcs["lower"] = strings.ToLower
+
+	assert.Contains(t, cfg.funcs, "upper")
+	assert.NotContains(t, cfg.funcs, "lower")
 }
 
 // TestNew tests expected behavior.
@@ -329,6 +354,30 @@ func TestParse(t *testing.T) {
 		out, err := Execute(parsed, map[string]any{})
 		require.NoError(t, err)
 		assert.Equal(t, "<no value>", out)
+	})
+
+	t.Run("uses custom function", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := Parse("hello", `{{ "notifykit" | upper }}`, WithFunc("upper", strings.ToUpper))
+		require.NoError(t, err)
+
+		out, err := Execute(parsed, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "NOTIFYKIT", out)
+	})
+
+	t.Run("uses custom function map", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := Parse("hello", `{{ "notifykit" | wrap }}`, WithFuncs(template.FuncMap{
+			"wrap": func(value string) string { return "[" + value + "]" },
+		}))
+		require.NoError(t, err)
+
+		out, err := Execute(parsed, nil)
+		require.NoError(t, err)
+		assert.Equal(t, "[notifykit]", out)
 	})
 
 	t.Run("rejects invalid missing key policy", func(t *testing.T) {

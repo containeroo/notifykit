@@ -67,7 +67,7 @@ func main() {
     receiver := notify.NewReceiver("ops", target).
         WithRetry(notify.RetryConfig{
             Count: 2,
-            Delay: time.Second,
+            Backoff: time.Second,
         })
 
     err = notify.SendTo(ctx, Alert{
@@ -103,7 +103,7 @@ go run ./examples/multiple
 receiver := notify.NewReceiver("ops", slackTarget, emailTarget).
     WithName("Operations").
     WithVars(map[string]any{"channel": "alerts"}).
-    WithRetry(notify.RetryConfig{Count: 2, Delay: time.Second})
+    WithRetry(notify.RetryConfig{Count: 2, Backoff: time.Second})
 
 err := notify.SendTo(ctx, alert, receiver)
 ```
@@ -166,7 +166,7 @@ receivers := notify.Receivers{
         Name: "Operations",
         Retry: notify.RetryConfig{
             Count: 2, // two retries, three total attempts
-            Delay: time.Second,
+            Backoff: time.Second,
         },
         Vars: map[string]any{
             "channel": "alerts",
@@ -285,7 +285,7 @@ A receiver groups one or more delivery targets and optional receiver-scoped sett
 receiver := notify.NewReceiver("ops", slackWebhook, emailTarget).
     WithName("Operations").
     WithVars(map[string]any{"channel": "alerts"}).
-    WithRetry(notify.RetryConfig{Count: 2, Delay: time.Second})
+    WithRetry(notify.RetryConfig{Count: 2, Backoff: time.Second})
 ```
 
 `Receiver.ID` is the routing identifier. `Receiver.Name` is passed into the notification payload as the receiver name. When `Name` is empty, Notifykit defaults it to the receiver ID.
@@ -350,6 +350,35 @@ tmpl, err := templates.ParseStringTemplate(
 )
 ```
 
+Applications can add their own template functions with `WithFunc` or `WithFuncs`.
+This is useful for application-specific formatting that should not be built into Notifykit itself.
+
+```go
+func formatDuration(d time.Duration) string {
+    if d < 0 {
+        d = -d
+    }
+    if d < time.Second {
+        return d.Truncate(time.Millisecond).String()
+    }
+    return d.Truncate(time.Second).String()
+}
+
+funcs := templates.WithFunc("formatDuration", formatDuration)
+
+subject, err := templates.ParseStringTemplate(
+    "subject",
+    `{{ .Service }} is {{ .Status }}`,
+    funcs,
+)
+
+body, err := templates.ParseTemplate(
+    "webhook",
+    `{"text": {{ (.Duration | formatDuration) | json }}}`,
+    funcs,
+)
+```
+
 ## Development
 
 Run the full local check suite with:
@@ -372,3 +401,5 @@ Keep these parts in your application:
 - metrics and audit logging
 
 Notifykit owns only the notification mechanics.
+
+

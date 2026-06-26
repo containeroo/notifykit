@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -40,12 +41,36 @@ type Option func(*options)
 // options stores parser configuration.
 type options struct {
 	missingKey MissingKey
+	funcs      template.FuncMap
 }
 
 // WithMissingKey configures the text/template missingkey option.
 func WithMissingKey(policy MissingKey) Option {
 	return func(cfg *options) {
 		cfg.missingKey = policy
+	}
+}
+
+// WithFunc adds one custom template function.
+func WithFunc(name string, fn any) Option {
+	return func(cfg *options) {
+		if cfg.funcs == nil {
+			cfg.funcs = template.FuncMap{}
+		}
+		cfg.funcs[name] = fn
+	}
+}
+
+// WithFuncs adds custom template functions.
+func WithFuncs(funcs template.FuncMap) Option {
+	return func(cfg *options) {
+		if len(funcs) == 0 {
+			return
+		}
+		if cfg.funcs == nil {
+			cfg.funcs = template.FuncMap{}
+		}
+		maps.Copy(cfg.funcs, funcs)
 	}
 }
 
@@ -316,7 +341,10 @@ func Parse(name, value string, opts ...Option) (*template.Template, error) {
 		return nil, err
 	}
 
-	parsed, err := template.New(name).Option(cfg.templateOption()).Funcs(FuncMap()).Parse(value)
+	funcs := FuncMap()
+	maps.Copy(funcs, cfg.funcs)
+
+	parsed, err := template.New(name).Option(cfg.templateOption()).Funcs(funcs).Parse(value)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", name, err)
 	}
