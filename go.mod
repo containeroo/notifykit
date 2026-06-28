@@ -4,6 +4,7 @@ go 1.24.0
 
 require (
 	github.com/containeroo/tmplfuncs v0.0.2
+	github.com/containeroo/uuidv7 v0.0.2
 	github.com/stretchr/testify v1.11.1
 )
 

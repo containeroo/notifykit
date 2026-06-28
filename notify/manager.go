@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"sort"
 
-	"github.com/containeroo/notifykit/ids"
+	"github.com/containeroo/uuidv7"
 )
 
 // Manager owns notification queueing and dispatch infrastructure.
@@ -109,5 +109,5 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // nextQueueID returns a time-prefixed process-local queue id.
 func nextQueueID() (string, error) {
-	return ids.NewUUIDV7()
+	return uuidv7.New()
 }

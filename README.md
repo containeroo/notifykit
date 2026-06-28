@@ -232,7 +232,6 @@ notify/             queue, dispatcher, receivers, retries, and target interfaces
 templates/          template loading, parsing, and rendering
 targets/webhook/    HTTP webhook target
 targets/email/      SMTP email target
-ids/                UUIDv7 generator
 ```
 
 ## Notification contract
@@ -418,5 +417,3 @@ Notifykit owns only the notification mechanics.
 ## License
 
 This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.
-
-
