@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/containeroo/notifykit/notify"
 	"github.com/containeroo/notifykit/templates"
@@ -23,9 +24,6 @@ type testNotification struct{}
 
 // ID returns a static notification id.
 func (testNotification) ID() string { return "n1" }
-
-// ReceiverNames returns no receiver filter.
-func (testNotification) ReceiverNames() []string { return nil }
 
 // Data returns email render data.
 func (testNotification) Data(receiver string, vars map[string]any, subject string) any {
@@ -43,6 +41,7 @@ func TestNew(t *testing.T) {
 	target := New()
 	require.NotNil(t, target)
 	assert.Equal(t, 587, target.Port)
+	assert.Equal(t, 10*time.Second, target.DialTimeout)
 }
 
 // TestTargetType tests expected behavior.
@@ -64,6 +63,17 @@ func TestTargetSend(t *testing.T) {
 		target.Port = 1
 		_, err := target.Send(context.Background(), payload())
 		require.Error(t, err)
+	})
+
+	t.Run("returns context error", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		target := validTarget(t)
+		_, err := target.Send(ctx, payload())
+		require.ErrorIs(t, err, context.Canceled)
 	})
 
 	t.Run("sends successfully", func(t *testing.T) {
@@ -103,6 +113,18 @@ func TestTargetSendResult(t *testing.T) {
 		assert.Equal(t, "failed", result.Status)
 	})
 
+	t.Run("returns failed status on config error", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		target.Headers = map[string]string{"Subject": "override"}
+
+		result, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.Equal(t, "failed", result.Status)
+	})
+
 	t.Run("returns sent status", func(t *testing.T) {
 		t.Parallel()
 
@@ -137,6 +159,18 @@ func TestTargetValidate(t *testing.T) {
 		target := &Target{}
 		err := target.Validate(payload())
 		require.Error(t, err)
+	})
+
+	t.Run("returns config error", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		target.Headers = map[string]string{"": "value"}
+
+		err := target.Validate(payload())
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "email header name must not be empty")
 	})
 }
 
@@ -189,8 +223,33 @@ func TestSendSMTP(t *testing.T) {
 	t.Run("returns dial error", func(t *testing.T) {
 		t.Parallel()
 
-		err := sendSMTP(Target{Host: "127.0.0.1", Port: 1}, "subject", "body")
+		err := sendSMTP(context.Background(), Target{Host: "127.0.0.1", Port: 1}, "subject", "body")
 		require.Error(t, err)
+	})
+
+	t.Run("returns context error", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		cancel()
+
+		err := sendSMTP(ctx, Target{Host: "127.0.0.1", Port: 1}, "subject", "body")
+		require.ErrorIs(t, err, context.Canceled)
+	})
+
+	t.Run("returns config error", func(t *testing.T) {
+		t.Parallel()
+
+		err := sendSMTP(context.Background(), Target{
+			Host:    "127.0.0.1",
+			Port:    1,
+			From:    "from@example.com",
+			To:      []string{"to@example.com"},
+			Headers: map[string]string{"Bcc": "attacker@example.com"},
+		}, "subject", "body")
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `email header "Bcc" is reserved`)
 	})
 
 	t.Run("sends message", func(t *testing.T) {
@@ -199,7 +258,7 @@ func TestSendSMTP(t *testing.T) {
 		host, port, messages, stop := startSMTPServer(t)
 		defer stop()
 
-		err := sendSMTP(Target{Host: host, Port: port, From: "from@example.com", To: []string{"to@example.com"}}, "subject", "body")
+		err := sendSMTP(context.Background(), Target{Host: host, Port: port, From: "from@example.com", To: []string{"to@example.com"}}, "subject", "body")
 		require.NoError(t, err)
 		assert.Contains(t, <-messages, "Subject: subject")
 	})
@@ -274,32 +333,220 @@ func TestEnvelopeRecipients(t *testing.T) {
 func TestValidateSMTPConfig(t *testing.T) {
 	t.Parallel()
 
+	validTarget := func() Target {
+		return Target{
+			Host: "smtp.example.com",
+			Port: 587,
+			From: "from@example.com",
+			To:   []string{"to@example.com"},
+		}
+	}
+
 	t.Run("accepts complete config", func(t *testing.T) {
 		t.Parallel()
 
-		err := validateSMTPConfig(Target{Host: "smtp.example.com", Port: 587, From: "from@example.com", To: []string{"to@example.com"}})
+		err := validateSMTPConfig(validTarget())
+		require.NoError(t, err)
+	})
+
+	t.Run("accepts custom headers", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{
+			"X-Trace-ID": "",
+			"X-Service":  "notifykit",
+		}
+
+		err := validateSMTPConfig(target)
 		require.NoError(t, err)
 	})
 
 	t.Run("requires host", func(t *testing.T) {
 		t.Parallel()
 
-		err := validateSMTPConfig(Target{Port: 587, From: "from@example.com", To: []string{"to@example.com"}})
+		target := validTarget()
+		target.Host = ""
+
+		err := validateSMTPConfig(target)
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "email host is required")
 	})
 
 	t.Run("requires sender", func(t *testing.T) {
 		t.Parallel()
 
-		err := validateSMTPConfig(Target{Host: "smtp.example.com", Port: 587, To: []string{"to@example.com"}})
+		target := validTarget()
+		target.From = ""
+
+		err := validateSMTPConfig(target)
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "email from address is required")
 	})
 
 	t.Run("requires recipient", func(t *testing.T) {
 		t.Parallel()
 
-		err := validateSMTPConfig(Target{Host: "smtp.example.com", Port: 587, From: "from@example.com"})
+		target := validTarget()
+		target.To = nil
+
+		err := validateSMTPConfig(target)
 		require.Error(t, err)
+		assert.Contains(t, err.Error(), "email recipient is required")
+	})
+
+	t.Run("rejects empty custom header name", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"": "value"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "email header name must not be empty")
+	})
+
+	t.Run("rejects custom header name with leading whitespace", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{" X-Test": "value"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must not have leading or trailing whitespace")
+	})
+
+	t.Run("rejects custom header name with trailing whitespace", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"X-Test ": "value"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must not have leading or trailing whitespace")
+	})
+
+	t.Run("rejects custom header name with colon", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"X-Test:Bad": "value"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "contains invalid character")
+	})
+
+	t.Run("rejects custom header name with non-ascii character", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"X-Ä": "value"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "contains invalid character")
+	})
+
+	t.Run("rejects custom header value with carriage return", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"X-Test": "ok\rBcc: attacker@example.com"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "value must not contain newline characters")
+	})
+
+	t.Run("rejects custom header value with line feed", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"X-Test": "ok\nBcc: attacker@example.com"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "value must not contain newline characters")
+	})
+
+	t.Run("rejects reserved from header", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"From": "other@example.com"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `email header "From" is reserved`)
+	})
+
+	t.Run("rejects reserved to header", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"To": "other@example.com"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `email header "To" is reserved`)
+	})
+
+	t.Run("rejects reserved cc header", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"Cc": "other@example.com"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `email header "Cc" is reserved`)
+	})
+
+	t.Run("rejects reserved bcc header", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"Bcc": "other@example.com"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `email header "Bcc" is reserved`)
+	})
+
+	t.Run("rejects reserved subject header", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"Subject": "override"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `email header "Subject" is reserved`)
+	})
+
+	t.Run("rejects reserved mime version header", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"MIME-Version": "2.0"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `email header "MIME-Version" is reserved`)
+	})
+
+	t.Run("rejects reserved content type header", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.Headers = map[string]string{"Content-Type": "text/plain"}
+
+		err := validateSMTPConfig(target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `email header "Content-Type" is reserved`)
 	})
 }
 

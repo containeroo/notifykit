@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"errors"
 	"fmt"
+	"maps"
 	"net"
 	"net/smtp"
 	"sort"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/containeroo/notifykit/internal/header"
 	"github.com/containeroo/notifykit/notify"
 	"github.com/containeroo/notifykit/templates"
 )
@@ -54,7 +56,8 @@ type Target struct {
 	// Headers contains additional message headers.
 	//
 	// Headers are appended in deterministic key order after the standard message
-	// headers.
+	// headers. Standard message headers such as From, To, Subject, MIME-Version,
+	// and Content-Type cannot be overridden here.
 	Headers map[string]string
 
 	// SkipTLSVerify disables SMTP STARTTLS certificate verification.
@@ -62,6 +65,11 @@ type Target struct {
 	// This should only be used for local development or trusted private SMTP
 	// servers with self-signed certificates.
 	SkipTLSVerify bool
+
+	// DialTimeout limits how long SMTP connection establishment may take.
+	//
+	// New defaults DialTimeout to 10 seconds when unset.
+	DialTimeout time.Duration
 
 	// Template renders the HTML email body.
 	Template *templates.Template
@@ -75,6 +83,7 @@ type Target struct {
 // It applies SMTP defaults for optional fields:
 //
 //   - Port defaults to 587.
+//   - DialTimeout defaults to 10 seconds.
 //
 // Template and SubjectTmpl are not validated by New. They are rendered by
 // Render, Validate, Send, or SendResult, which return errors for incomplete
@@ -109,6 +118,9 @@ func NewFromTarget(target Target, opts ...Option) *Target {
 func applyDefaults(target *Target) {
 	if target.Port == 0 {
 		target.Port = 587
+	}
+	if target.DialTimeout == 0 {
+		target.DialTimeout = 10 * time.Second
 	}
 }
 
@@ -157,12 +169,7 @@ func WithBCC(recipients ...string) Option {
 
 // WithHeader configures one additional message header.
 func WithHeader(name, value string) Option {
-	return func(target *Target) {
-		if target.Headers == nil {
-			target.Headers = map[string]string{}
-		}
-		target.Headers[name] = value
-	}
+	return WithHeaders(map[string]string{name: value})
 }
 
 // WithHeaders configures additional message headers.
@@ -174,9 +181,7 @@ func WithHeaders(headers map[string]string) Option {
 		if target.Headers == nil {
 			target.Headers = map[string]string{}
 		}
-		for name, value := range headers {
-			target.Headers[name] = value
-		}
+		maps.Copy(target.Headers, headers)
 	}
 }
 
@@ -186,6 +191,11 @@ func WithHeaders(headers map[string]string) Option {
 // servers with self-signed certificates.
 func WithSkipTLSVerify() Option {
 	return func(target *Target) { target.SkipTLSVerify = true }
+}
+
+// WithDialTimeout configures the SMTP connection timeout.
+func WithDialTimeout(timeout time.Duration) Option {
+	return func(target *Target) { target.DialTimeout = timeout }
 }
 
 // WithTemplate configures the HTML email body template.
@@ -207,14 +217,18 @@ func (t *Target) Send(ctx context.Context, payload notify.Payload) (notify.Deliv
 }
 
 // SendResult renders and sends an email notification with delivery details.
-func (t *Target) SendResult(_ context.Context, payload notify.Payload) (notify.DeliveryResult, error) {
+func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify.DeliveryResult, error) {
 	if t == nil {
 		return notify.DeliveryResult{}, errors.New("email target is nil")
 	}
 	start := time.Now()
-	message, err := t.Render(payload)
+	err := contextError(ctx)
+	var message Message
 	if err == nil {
-		err = sendSMTP(*t, message.Subject, message.Body)
+		message, err = t.Render(payload)
+	}
+	if err == nil {
+		err = sendSMTP(ctx, *t, message.Subject, message.Body)
 	}
 
 	status := "sent"
@@ -227,10 +241,15 @@ func (t *Target) SendResult(_ context.Context, payload notify.Payload) (notify.D
 	}, err
 }
 
-// Validate renders the target without sending it.
+// Validate renders the target and validates SMTP settings without sending it.
 func (t *Target) Validate(payload notify.Payload) error {
-	_, err := t.Render(payload)
-	return err
+	if t == nil {
+		return errors.New("email target is nil")
+	}
+	if _, err := t.Render(payload); err != nil {
+		return err
+	}
+	return validateSMTPConfig(*t)
 }
 
 // Render renders the configured subject and body templates.
@@ -263,7 +282,10 @@ type Message struct {
 }
 
 // sendSMTP sends a rendered email through the configured SMTP server.
-func sendSMTP(target Target, subject, body string) error {
+func sendSMTP(ctx context.Context, target Target, subject, body string) error {
+	if err := contextError(ctx); err != nil {
+		return err
+	}
 	if err := validateSMTPConfig(target); err != nil {
 		return err
 	}
@@ -271,25 +293,73 @@ func sendSMTP(target Target, subject, body string) error {
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
 	msg := buildEmail(target, subject, body)
 
-	client, err := smtp.Dial(addr)
+	dialer := net.Dialer{Timeout: smtpDialTimeout(target)}
+	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close() // nolint:errcheck
+
+	stopContextClose := closeConnOnContextDone(ctx, conn)
+	defer stopContextClose()
+
+	client, err := smtp.NewClient(conn, target.Host)
 	if err != nil {
 		return err
 	}
 	defer client.Close() // nolint:errcheck
 
+	if err := contextError(ctx); err != nil {
+		return err
+	}
 	if ok, _ := client.Extension("STARTTLS"); ok {
 		if err := client.StartTLS(smtpTLSConfig(target)); err != nil {
 			return err
 		}
 	}
 
+	if err := contextError(ctx); err != nil {
+		return err
+	}
 	if err := smtpAuth(client, target); err != nil {
+		return err
+	}
+	if err := contextError(ctx); err != nil {
 		return err
 	}
 	return smtpSend(client, target.From, target.To, target.CC, target.BCC, msg)
 }
 
-// validateSMTPConfig reports missing SMTP delivery settings.
+// contextError returns the current context error or a nil-context error.
+func contextError(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("context is nil")
+	}
+	return ctx.Err()
+}
+
+// smtpDialTimeout returns the configured connection timeout.
+func smtpDialTimeout(target Target) time.Duration {
+	if target.DialTimeout <= 0 {
+		return 10 * time.Second
+	}
+	return target.DialTimeout
+}
+
+// closeConnOnContextDone closes conn if ctx is canceled during SMTP operations.
+func closeConnOnContextDone(ctx context.Context, conn net.Conn) func() {
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-done:
+		}
+	}()
+	return func() { close(done) }
+}
+
+// validateSMTPConfig reports missing or invalid SMTP delivery settings.
 func validateSMTPConfig(target Target) error {
 	if strings.TrimSpace(target.Host) == "" {
 		return errors.New("email host is required")
@@ -302,6 +372,57 @@ func validateSMTPConfig(target Target) error {
 	}
 	if len(envelopeRecipients(target.To, target.CC, target.BCC)) == 0 {
 		return errors.New("email recipient is required")
+	}
+	if err := validateHeaders(target.Headers); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateHeaders validates custom message headers.
+func validateHeaders(headers map[string]string) error {
+	for name, value := range headers {
+		if err := validateHeaderName(name); err != nil {
+			return err
+		}
+		if isReservedHeader(name) {
+			return fmt.Errorf("email header %q is reserved", name)
+		}
+		if err := validateHeaderValue(name, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateHeaderName reports whether name is safe for use as an email header field name.
+func validateHeaderName(name string) error {
+	if name == "" {
+		return errors.New("email header name must not be empty")
+	}
+	if strings.TrimSpace(name) != name {
+		return fmt.Errorf("email header %q must not have leading or trailing whitespace", name)
+	}
+	if !header.ValidFieldName(name) {
+		return fmt.Errorf("email header %q contains invalid character", name)
+	}
+	return nil
+}
+
+// isReservedHeader reports whether name would override a standard header.
+func isReservedHeader(name string) bool {
+	switch strings.ToLower(name) {
+	case "from", "to", "cc", "bcc", "subject", "mime-version", "content-type":
+		return true
+	default:
+		return false
+	}
+}
+
+// validateHeaderValue reports whether value is safe for use as an email header value.
+func validateHeaderValue(name, value string) error {
+	if header.ContainsNewline(value) {
+		return fmt.Errorf("email header %q value must not contain newline characters", name)
 	}
 	return nil
 }
@@ -377,11 +498,11 @@ func buildEmail(target Target, subject, body string) []byte {
 	headers = appendHeaders(headers, target.Headers)
 
 	var buf strings.Builder
-	for _, header := range headers {
-		if strings.TrimSpace(header) == "" {
+	for _, line := range headers {
+		if strings.TrimSpace(line) == "" {
 			continue
 		}
-		buf.WriteString(header)
+		buf.WriteString(line)
 		buf.WriteString("\r\n")
 	}
 	buf.WriteString("\r\n")
