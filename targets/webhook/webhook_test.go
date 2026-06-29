@@ -24,9 +24,6 @@ type testNotification struct{}
 // ID returns a static notification id.
 func (testNotification) ID() string { return "n1" }
 
-// ReceiverNames returns no receiver filter.
-func (testNotification) ReceiverNames() []string { return nil }
-
 // Data returns webhook render data.
 func (testNotification) Data(receiver string, vars map[string]any, title string) any {
 	return map[string]any{
@@ -91,6 +88,17 @@ func TestTargetSend(t *testing.T) {
 		require.Error(t, err)
 	})
 
+	t.Run("returns header validation error", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		target.Headers = map[string]string{"": "value"}
+
+		_, err := target.Send(context.Background(), payload())
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "webhook header name must not be empty")
+	})
+
 	t.Run("sends successfully", func(t *testing.T) {
 		t.Parallel()
 
@@ -126,6 +134,21 @@ func TestTargetSendResult(t *testing.T) {
 		result, err := target.SendResult(context.Background(), payload())
 		require.Error(t, err)
 		assert.Empty(t, result)
+	})
+
+	t.Run("returns header validation error", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		target.Headers = map[string]string{"X-Test": "ok\nInjected: yes"}
+
+		result, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.Empty(t, result.Status)
+		assert.Equal(t, 0, result.StatusCode)
+		assert.Empty(t, result.Response)
+		assert.Contains(t, err.Error(), "value must not contain newline characters")
 	})
 
 	t.Run("returns response details on success", func(t *testing.T) {
@@ -180,6 +203,18 @@ func TestTargetValidate(t *testing.T) {
 		target := &Target{}
 		err := target.Validate(payload())
 		require.Error(t, err)
+	})
+
+	t.Run("returns header validation error", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		target.Headers = map[string]string{" X-Test": "value"}
+
+		err := target.Validate(payload())
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must not have leading or trailing whitespace")
 	})
 }
 
@@ -258,12 +293,129 @@ func TestTargetPost(t *testing.T) {
 		assert.Equal(t, "ok", body)
 	})
 
+	t.Run("allows overriding content type", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, "application/cloudevents+json", r.Header.Get("Content-Type"))
+			_, _ = w.Write([]byte("ok"))
+		}))
+		defer server.Close()
+
+		target := New(
+			WithURL(server.URL),
+			WithHeader("Content-Type", "application/cloudevents+json"),
+		)
+		_, _, _, err := target.post(context.Background(), []byte(`{"ok":true}`))
+		require.NoError(t, err)
+	})
+
+	t.Run("returns header validation error", func(t *testing.T) {
+		t.Parallel()
+
+		target := New(
+			WithURL("http://127.0.0.1/unused"),
+			WithHeader("X-Test:Bad", "value"),
+		)
+		_, _, _, err := target.post(context.Background(), []byte("{}"))
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "contains invalid character")
+	})
+
 	t.Run("returns request creation error", func(t *testing.T) {
 		t.Parallel()
 
 		target := New(WithURL("://bad-url"))
 		_, _, _, err := target.post(context.Background(), []byte("{}"))
 		require.Error(t, err)
+	})
+}
+
+// TestValidateHeaders tests expected behavior.
+func TestValidateHeaders(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts empty headers", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(nil)
+		require.NoError(t, err)
+	})
+
+	t.Run("accepts custom headers", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(map[string]string{
+			"X-Trace-ID": "",
+			"X-Service":  "notifykit",
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("accepts content type override", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(map[string]string{
+			"Content-Type": "application/cloudevents+json",
+		})
+		require.NoError(t, err)
+	})
+
+	t.Run("rejects empty custom header name", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(map[string]string{"": "value"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "webhook header name must not be empty")
+	})
+
+	t.Run("rejects custom header name with leading whitespace", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(map[string]string{" X-Test": "value"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must not have leading or trailing whitespace")
+	})
+
+	t.Run("rejects custom header name with trailing whitespace", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(map[string]string{"X-Test ": "value"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must not have leading or trailing whitespace")
+	})
+
+	t.Run("rejects custom header name with colon", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(map[string]string{"X-Test:Bad": "value"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "contains invalid character")
+	})
+
+	t.Run("rejects custom header name with non-ascii character", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(map[string]string{"X-Ä": "value"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "contains invalid character")
+	})
+
+	t.Run("rejects custom header value with carriage return", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(map[string]string{"X-Test": "ok\rInjected: yes"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "value must not contain newline characters")
+	})
+
+	t.Run("rejects custom header value with line feed", func(t *testing.T) {
+		t.Parallel()
+
+		err := validateHeaders(map[string]string{"X-Test": "ok\nInjected: yes"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "value must not contain newline characters")
 	})
 }
 

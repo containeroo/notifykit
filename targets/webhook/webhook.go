@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/containeroo/notifykit/internal/header"
 	"github.com/containeroo/notifykit/notify"
 	"github.com/containeroo/notifykit/templates"
 )
@@ -182,12 +184,7 @@ func WithMethod(method string) Option {
 
 // WithHeader configures one additional HTTP request header.
 func WithHeader(name, value string) Option {
-	return func(target *Target) {
-		if target.Headers == nil {
-			target.Headers = map[string]string{}
-		}
-		target.Headers[name] = value
-	}
+	return WithHeaders(map[string]string{name: value})
 }
 
 // WithHeaders configures additional HTTP request headers.
@@ -199,9 +196,7 @@ func WithHeaders(headers map[string]string) Option {
 		if target.Headers == nil {
 			target.Headers = map[string]string{}
 		}
-		for name, value := range headers {
-			target.Headers[name] = value
-		}
+		maps.Copy(target.Headers, headers)
 	}
 }
 
@@ -270,10 +265,15 @@ func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify
 	return result, nil
 }
 
-// Validate renders the target without sending it.
+// Validate renders the target and validates request settings without sending it.
 func (t *Target) Validate(payload notify.Payload) error {
-	_, err := t.Render(payload)
-	return err
+	if t == nil {
+		return errors.New("webhook target is nil")
+	}
+	if _, err := t.Render(payload); err != nil {
+		return err
+	}
+	return validateHeaders(t.Headers)
 }
 
 // Render renders the configured title and body templates.
@@ -306,6 +306,10 @@ func (t *Target) Render(payload notify.Payload) ([]byte, error) {
 
 // post sends the rendered body to the configured webhook endpoint.
 func (t *Target) post(ctx context.Context, body []byte) (status string, statusCode int, response string, err error) {
+	if err := validateHeaders(t.Headers); err != nil {
+		return "", 0, "", err
+	}
+
 	client := t.Client
 	if client == nil {
 		client = NewClient(10 * time.Second)
@@ -347,6 +351,41 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 
 	t.logSuccessfulResponse(resp, responseBody, truncated, duration)
 	return resp.Status, resp.StatusCode, responseBody, nil
+}
+
+// validateHeaders validates custom HTTP request headers.
+func validateHeaders(headers map[string]string) error {
+	for name, value := range headers {
+		if err := validateHeaderName(name); err != nil {
+			return err
+		}
+		if err := validateHeaderValue(name, value); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateHeaderName reports whether name is safe for use as an HTTP header field name.
+func validateHeaderName(name string) error {
+	if name == "" {
+		return errors.New("webhook header name must not be empty")
+	}
+	if strings.TrimSpace(name) != name {
+		return fmt.Errorf("webhook header %q must not have leading or trailing whitespace", name)
+	}
+	if !header.ValidFieldName(name) {
+		return fmt.Errorf("webhook header %q contains invalid character", name)
+	}
+	return nil
+}
+
+// validateHeaderValue reports whether value is safe for use as an HTTP header value.
+func validateHeaderValue(name, value string) error {
+	if header.ContainsNewline(value) {
+		return fmt.Errorf("webhook header %q value must not contain newline characters", name)
+	}
+	return nil
 }
 
 // logSuccessfulResponse writes a successful webhook response according to LogResponse.
