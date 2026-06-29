@@ -30,12 +30,12 @@ type Alert struct {
 
 func (a Alert) ID() string { return a.IDValue }
 
-func (a Alert) Data(receiver string, vars map[string]any, subject string) any {
+func (a Alert) Data(receiver string, vars map[string]any, title string) any {
     return map[string]any{
         "ID":       a.IDValue,
         "Service":  a.Service,
         "Status":   a.Status,
-        "Subject":  subject,
+        "Title":    title,
         "Receiver": receiver,
         "Vars":     vars,
     }
@@ -45,19 +45,19 @@ func main() {
     ctx := context.Background()
     logger := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-    subject, err := templates.ParseStringTemplate("subject", `{{ .Service }} is {{ .Status }}`)
+    title, err := templates.ParseStringTemplate("title", `{{ .Service }} is {{ .Status }}`)
     if err != nil {
         panic(err)
     }
 
-    body, err := templates.ParseTemplate("webhook", `{"text": {{ .Subject | json }}}`)
+    body, err := templates.ParseTemplate("webhook", `{"text": {{ .Title | json }}}`)
     if err != nil {
         panic(err)
     }
 
     target := webhook.New(
         webhook.WithURL("https://example.com/webhook"),
-        webhook.WithSubjectTemplate(subject),
+        webhook.WithTitleTemplate(title),
         webhook.WithTemplate(body),
         webhook.WithClient(webhook.NewClient(10*time.Second)),
         webhook.WithLogger(logger),
@@ -138,7 +138,7 @@ webhookTarget := webhook.New(
     webhook.WithName("slack-alerts"),
     webhook.WithURL("https://example.com/webhook"),
     webhook.WithClient(client),
-    webhook.WithSubjectTemplate(subject),
+    webhook.WithTitleTemplate(title),
     webhook.WithTemplate(body),
     webhook.WithValidateJSON(),
 )
@@ -220,8 +220,8 @@ flowchart LR
     K --> L[Delivery]
     L --> M[Retry]
     M --> N[Target]
-    N --> O[Render subject]
-    O --> P[Render body with subject]
+    N --> O[Render title or subject]
+    O --> P[Render body with title or subject]
     P --> Q[Send webhook or email]
 ```
 
@@ -247,7 +247,7 @@ type Notification interface {
 
 `ID` returns a stable notification identifier for logs and delivery tracing.
 
-`Data` returns the template context. Webhook and email targets call it twice: first with an empty subject to render the subject template, then with the rendered subject so the body can use `.Subject`.
+`Data` returns the template context. Targets call it twice: first with an empty string to render their title or subject template, then with the rendered value so the body template can reuse it. Webhook render data commonly exposes that value as `.Title`; email render data commonly exposes it as `.Subject`.
 
 To select specific receivers, also implement `notify.ReceiverRouter`:
 
@@ -302,7 +302,7 @@ client := webhook.NewClient(
 )
 target := webhook.New(
     webhook.WithURL("https://example.com/webhook"),
-    webhook.WithSubjectTemplate(subject),
+    webhook.WithTitleTemplate(title),
     webhook.WithTemplate(body),
     webhook.WithClient(client),
     webhook.WithLogger(logger),

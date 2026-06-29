@@ -69,11 +69,11 @@ type Target struct {
 	// Template renders the HTTP request body.
 	Template *templates.Template
 
-	// SubjectTmpl renders the notification subject.
+	// TitleTmpl renders the notification title.
 	//
-	// The rendered subject is passed back into the body template data so body
-	// templates can use it as .Subject.
-	SubjectTmpl *templates.StringTemplate
+	// The rendered title is passed back into the body template data so body
+	// templates can use it as .Title.
+	TitleTmpl *templates.StringTemplate
 
 	// Client sends HTTP webhook requests.
 	//
@@ -117,7 +117,7 @@ type Target struct {
 //   - LogResponse defaults to LogResponseSummary.
 //   - ResponseBodyLimit defaults to 4096 bytes.
 //
-// Template and SubjectTmpl are not validated by New. They are rendered by
+// Template and TitleTmpl are not validated by New. They are rendered by
 // Render, Validate, Send, or SendResult, which return errors for incomplete
 // configuration.
 //
@@ -210,9 +210,9 @@ func WithTemplate(tmpl *templates.Template) Option {
 	return func(target *Target) { target.Template = tmpl }
 }
 
-// WithSubjectTemplate configures the notification subject template.
-func WithSubjectTemplate(tmpl *templates.StringTemplate) Option {
-	return func(target *Target) { target.SubjectTmpl = tmpl }
+// WithTitleTemplate configures the notification title template.
+func WithTitleTemplate(tmpl *templates.StringTemplate) Option {
+	return func(target *Target) { target.TitleTmpl = tmpl }
 }
 
 // WithClient configures the HTTP client used to send webhook requests.
@@ -276,7 +276,7 @@ func (t *Target) Validate(payload notify.Payload) error {
 	return err
 }
 
-// Render renders the configured subject and body templates.
+// Render renders the configured title and body templates.
 func (t *Target) Render(payload notify.Payload) ([]byte, error) {
 	if t == nil {
 		return nil, errors.New("webhook target is nil")
@@ -284,16 +284,16 @@ func (t *Target) Render(payload notify.Payload) ([]byte, error) {
 	if t.Template == nil {
 		return nil, errors.New("webhook template is nil")
 	}
-	if t.SubjectTmpl == nil {
-		return nil, errors.New("webhook subject template is nil")
+	if t.TitleTmpl == nil {
+		return nil, errors.New("webhook title template is nil")
 	}
 
-	subject, err := t.SubjectTmpl.Render(payload.Data(""))
+	title, err := t.TitleTmpl.Render(payload.Data(""))
 	if err != nil {
-		return nil, fmt.Errorf("render webhook subject: %w", err)
+		return nil, fmt.Errorf("render webhook title: %w", err)
 	}
 
-	body, err := t.Template.Render(payload.Data(subject))
+	body, err := t.Template.Render(payload.Data(title))
 	if err != nil {
 		return nil, fmt.Errorf("render webhook template: %w", err)
 	}

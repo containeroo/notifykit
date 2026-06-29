@@ -28,10 +28,10 @@ func (testNotification) ID() string { return "n1" }
 func (testNotification) ReceiverNames() []string { return nil }
 
 // Data returns webhook render data.
-func (testNotification) Data(receiver string, vars map[string]any, subject string) any {
+func (testNotification) Data(receiver string, vars map[string]any, title string) any {
 	return map[string]any{
 		"Receiver": receiver,
-		"Subject":  subject,
+		"Title":    title,
 		"Vars":     vars,
 	}
 }
@@ -199,13 +199,13 @@ func TestTargetRender(t *testing.T) {
 	t.Run("requires body template", func(t *testing.T) {
 		t.Parallel()
 
-		target := &Target{SubjectTmpl: subjectTemplate(t)}
+		target := &Target{TitleTmpl: titleTemplate(t)}
 		body, err := target.Render(payload())
 		require.Error(t, err)
 		assert.Nil(t, body)
 	})
 
-	t.Run("requires subject template", func(t *testing.T) {
+	t.Run("requires title template", func(t *testing.T) {
 		t.Parallel()
 
 		target := &Target{Template: bodyTemplate(t, `{"text":"ok"}`)}
@@ -214,13 +214,13 @@ func TestTargetRender(t *testing.T) {
 		assert.Nil(t, body)
 	})
 
-	t.Run("renders subject into body", func(t *testing.T) {
+	t.Run("renders title into body", func(t *testing.T) {
 		t.Parallel()
 
 		target := validTarget(t)
 		body, err := target.Render(payload())
 		require.NoError(t, err)
-		assert.JSONEq(t, `{"text":"subject ops"}`, string(body))
+		assert.JSONEq(t, `{"text":"title ops"}`, string(body))
 	})
 
 	t.Run("validates json when enabled", func(t *testing.T) {
@@ -419,16 +419,16 @@ func validTarget(t *testing.T) *Target {
 	t.Helper()
 	return New(
 		WithURL("http://127.0.0.1/unused"),
-		WithTemplate(bodyTemplate(t, `{"text":{{ .Subject | json }}}`)),
-		WithSubjectTemplate(subjectTemplate(t)),
+		WithTemplate(bodyTemplate(t, `{"text":{{ .Title | json }}}`)),
+		WithTitleTemplate(titleTemplate(t)),
 		WithValidateJSON(),
 	)
 }
 
-// subjectTemplate supports tests.
-func subjectTemplate(t *testing.T) *templates.StringTemplate {
+// titleTemplate supports tests.
+func titleTemplate(t *testing.T) *templates.StringTemplate {
 	t.Helper()
-	tmpl, err := templates.ParseStringTemplate("subject", `subject {{ .Receiver }}`)
+	tmpl, err := templates.ParseStringTemplate("title", `title {{ .Receiver }}`)
 	require.NoError(t, err)
 	return tmpl
 }

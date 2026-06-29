@@ -2,12 +2,12 @@
 {
   "channel": {{ .CustomData.channel | default "alertmanager" | withPrefix "#" | json }},
   "charset": "utf-8",
-  "text": {{ .Subject | json }},
+  "text": {{ .Title | json }},
   "attachments": [
     {
       "color": {{ if .Resolved }}"good"{{ else }}"#A30200"{{ end }},
       "fallback": {{ print
-        .Subject " "
+        .Title " "
         "Status: " .Status ". "
         "Check-in: " .CheckInName ". "
         "Expected every " (.ExpectedBy.Sub .LastCheckIn) ", "
@@ -45,6 +45,5 @@
     }
   ]
 }
-
 
 

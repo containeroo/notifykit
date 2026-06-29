@@ -24,13 +24,13 @@ type Alert struct {
 // ID returns a stable notification id for logs and delivery tracing.
 func (a Alert) ID() string { return a.IDValue }
 
-// Data builds the template context used by the subject and webhook body.
-func (a Alert) Data(receiver string, vars map[string]any, subject string) any {
+// Data builds the template context used by the title and webhook body.
+func (a Alert) Data(receiver string, vars map[string]any, title string) any {
 	return map[string]any{
 		"ID":       a.IDValue,
 		"Service":  a.Service,
 		"Status":   a.Status,
-		"Subject":  subject,
+		"Title":    title,
 		"Receiver": receiver,
 		"Vars":     vars,
 	}
@@ -57,12 +57,12 @@ func main() {
 	devURL, stopDevAPI := mockExternalAPI("dev")
 	defer stopDevAPI()
 
-	subject, err := templates.ParseStringTemplate("subject", `{{ .Service }} is {{ .Status }}`)
+	title, err := templates.ParseStringTemplate("title", `{{ .Service }} is {{ .Status }}`)
 	if err != nil {
 		panic(err)
 	}
 
-	body, err := templates.ParseTemplate("webhook", `{"text": {{ .Subject | json }}, "receiver": {{ .Receiver | json }}}`)
+	body, err := templates.ParseTemplate("webhook", `{"text": {{ .Title | json }}, "receiver": {{ .Receiver | json }}}`)
 	if err != nil {
 		panic(err)
 	}
@@ -73,7 +73,7 @@ func main() {
 		webhook.New(
 			webhook.WithName("mock-ops-api"),
 			webhook.WithURL(opsURL),
-			webhook.WithSubjectTemplate(subject),
+			webhook.WithTitleTemplate(title),
 			webhook.WithTemplate(body),
 			webhook.WithClient(client),
 			webhook.WithLogger(logger),
@@ -86,7 +86,7 @@ func main() {
 		webhook.New(
 			webhook.WithName("mock-dev-api"),
 			webhook.WithURL(devURL),
-			webhook.WithSubjectTemplate(subject),
+			webhook.WithTitleTemplate(title),
 			webhook.WithTemplate(body),
 			webhook.WithClient(client),
 			webhook.WithLogger(logger),
