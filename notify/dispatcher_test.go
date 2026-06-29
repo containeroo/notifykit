@@ -201,4 +201,14 @@ func TestDispatcherResolveReceivers(t *testing.T) {
 		out := dispatcher.resolveReceivers([]ReceiverID{"missing"})
 		assert.Empty(t, out)
 	})
+
+	t.Run("skips nil receivers", func(t *testing.T) {
+		t.Parallel()
+
+		dispatcher, err := NewDispatcher(NewStore(), make(chan string), &testDelivery{}, Receivers{"nil": nil}, testLogger())
+		require.NoError(t, err)
+
+		out := dispatcher.resolveReceivers(nil)
+		assert.Empty(t, out)
+	})
 }

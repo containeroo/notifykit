@@ -68,6 +68,36 @@ func TestSend(t *testing.T) {
 		assert.Equal(t, 1, second.calls)
 	})
 
+	t.Run("skips nil receivers", func(t *testing.T) {
+		t.Parallel()
+
+		target := &testTarget{}
+		receivers := Receivers{
+			"ops": {Name: "ops", Targets: []Target{target}},
+			"nil": nil,
+		}
+
+		err := Send(context.Background(), testNotification{id: "n1"}, receivers, testLogger())
+
+		require.NoError(t, err)
+		assert.Equal(t, 1, target.calls)
+	})
+
+	t.Run("does not mutate receivers", func(t *testing.T) {
+		t.Parallel()
+
+		target := &testTarget{}
+		receiver := &Receiver{Targets: []Target{target}}
+		receivers := Receivers{"ops": receiver}
+
+		err := Send(context.Background(), testNotification{id: "n1"}, receivers, testLogger())
+
+		require.NoError(t, err)
+		assert.Empty(t, receiver.ID)
+		assert.Empty(t, receiver.Name)
+		assert.Equal(t, "ops", target.payload.Receiver)
+	})
+
 	t.Run("returns delivery error", func(t *testing.T) {
 		t.Parallel()
 

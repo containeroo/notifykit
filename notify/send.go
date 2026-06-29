@@ -42,18 +42,22 @@ func normalizeReceivers(receivers Receivers) Receivers {
 	if receivers == nil {
 		return Receivers{}
 	}
+	out := make(Receivers, len(receivers))
 	for id, receiver := range receivers {
 		if receiver == nil {
+			out[id] = nil
 			continue
 		}
+		normalized := *receiver
 		if receiver.ID == "" {
-			receiver.ID = id
+			normalized.ID = id
 		}
 		if receiver.Name == "" {
-			receiver.Name = string(id)
+			normalized.Name = string(id)
 		}
+		out[id] = &normalized
 	}
-	return receivers
+	return out
 }
 
 // receiverIDs returns the receiver IDs requested by notification.
@@ -64,14 +68,6 @@ func receiverIDs(notification Notification) []ReceiverID {
 	if routed, ok := notification.(ReceiverRouter); ok {
 		return routed.ReceiverIDs()
 	}
-	if named, ok := notification.(interface{ ReceiverNames() []string }); ok {
-		names := named.ReceiverNames()
-		ids := make([]ReceiverID, 0, len(names))
-		for _, name := range names {
-			ids = append(ids, ReceiverID(name))
-		}
-		return ids
-	}
 	return nil
 }
 
@@ -80,6 +76,9 @@ func resolveReceivers(receivers Receivers, ids []ReceiverID, logger *slog.Logger
 	if len(ids) == 0 {
 		out := make([]*Receiver, 0, len(receivers))
 		for _, receiver := range receivers {
+			if receiver == nil {
+				continue
+			}
 			out = append(out, receiver)
 		}
 		return out
@@ -89,9 +88,11 @@ func resolveReceivers(receivers Receivers, ids []ReceiverID, logger *slog.Logger
 	for _, id := range ids {
 		receiver, ok := receivers[id]
 		if !ok {
-			if logger != nil {
-				logger.Warn("receiver not found", "receiverID", id)
-			}
+			logger.Warn("receiver not found", "receiverID", id)
+			continue
+		}
+		if receiver == nil {
+			logger.Warn("receiver is nil", "receiverID", id)
 			continue
 		}
 		out = append(out, receiver)
