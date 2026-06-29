@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"time"
 )
@@ -14,6 +15,15 @@ func WithRetry(
 	cfg RetryConfig,
 	fn func() (DeliveryResult, error),
 ) (DeliveryResult, int, error) {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+	if ctx == nil {
+		return DeliveryResult{}, 0, errors.New("context is nil")
+	}
+	if fn == nil {
+		return DeliveryResult{}, 0, errors.New("retry function is nil")
+	}
 	return withRetry(ctx, logger, cfg, fn)
 }
 
@@ -24,13 +34,6 @@ func withRetry(
 	cfg RetryConfig,
 	fn func() (DeliveryResult, error),
 ) (DeliveryResult, int, error) {
-	if ctx == nil {
-		return DeliveryResult{}, 0, errors.New("context is nil")
-	}
-	if fn == nil {
-		return DeliveryResult{}, 0, errors.New("retry function is nil")
-	}
-
 	maxAttempts := max(cfg.Count+1, 1)
 	var (
 		lastResult DeliveryResult
@@ -42,15 +45,13 @@ func withRetry(
 		if attempt > 0 {
 			wait := retryBackoff(cfg, attempt)
 			if wait > 0 {
-				if logger != nil {
-					logger.Debug(
-						"notification target retry",
-						"attempt",
-						attempt+1,
-						"backoff",
-						wait.String(),
-					)
-				}
+				logger.Debug(
+					"notification target retry",
+					"attempt",
+					attempt+1,
+					"backoff",
+					wait.String(),
+				)
 
 				if err := waitForRetry(ctx, wait); err != nil {
 					return lastResult, executed, err
