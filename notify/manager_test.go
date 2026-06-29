@@ -4,6 +4,7 @@ import (
 	"context"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,6 +29,22 @@ func TestNewManager(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, manager)
 		assert.Empty(t, manager.receivers)
+	})
+
+	t.Run("configures workers", func(t *testing.T) {
+		t.Parallel()
+
+		manager, err := NewManager(nil, testLogger(), WithWorkers(3))
+		require.NoError(t, err)
+		assert.Equal(t, 3, manager.workers)
+	})
+
+	t.Run("ignores invalid worker count", func(t *testing.T) {
+		t.Parallel()
+
+		manager, err := NewManager(nil, testLogger(), WithWorkers(0), nil)
+		require.NoError(t, err)
+		assert.Equal(t, 1, manager.workers)
 	})
 }
 
@@ -121,6 +138,20 @@ func TestManagerReceivers(t *testing.T) {
 		assert.Equal(t, "a", out[0].Name)
 		assert.Equal(t, "z", out[1].Name)
 	})
+
+	t.Run("skips nil receivers", func(t *testing.T) {
+		t.Parallel()
+
+		manager, err := NewManager(Receivers{
+			"ops": {Name: "ops"},
+			"nil": nil,
+		}, testLogger())
+		require.NoError(t, err)
+
+		out := manager.Receivers()
+		require.Len(t, out, 1)
+		assert.Equal(t, "ops", out[0].Name)
+	})
 }
 
 // TestManagerStart tests expected behavior.
@@ -149,11 +180,59 @@ func TestManagerStart(t *testing.T) {
 
 		manager, err := NewManager(nil, testLogger())
 		require.NoError(t, err)
-		ctx, cancel := context.WithCancel(context.Background())
+		ctx, cancel := context.WithCancel(t.Context())
 		defer cancel()
 
 		err = manager.Start(ctx)
 		require.NoError(t, err)
+	})
+
+	t.Run("errors when started twice", func(t *testing.T) {
+		t.Parallel()
+
+		manager, err := NewManager(nil, testLogger())
+		require.NoError(t, err)
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+
+		err = manager.Start(ctx)
+		require.NoError(t, err)
+
+		err = manager.Start(ctx)
+		require.ErrorIs(t, err, ErrManagerStarted)
+	})
+
+	t.Run("processes queued notifications concurrently with multiple workers", func(t *testing.T) {
+		t.Parallel()
+
+		target := &blockingTarget{
+			entered: make(chan string, 2),
+			release: make(chan struct{}),
+		}
+		manager, err := NewManager(
+			Receivers{"ops": NewReceiver("ops", target)},
+			testLogger(),
+			WithWorkers(2),
+		)
+		require.NoError(t, err)
+
+		ctx, cancel := context.WithCancel(t.Context())
+		defer cancel()
+		err = manager.Start(ctx)
+		require.NoError(t, err)
+
+		_, err = manager.Enqueue(ctx, testNotification{id: "n1"})
+		require.NoError(t, err)
+		_, err = manager.Enqueue(ctx, testNotification{id: "n2"})
+		require.NoError(t, err)
+
+		seen := map[string]bool{
+			receiveWorkerEntry(t, target.entered): true,
+			receiveWorkerEntry(t, target.entered): true,
+		}
+		assert.Equal(t, map[string]bool{"n1": true, "n2": true}, seen)
+
+		close(target.release)
 	})
 }
 
@@ -172,4 +251,42 @@ func TestNextEventID(t *testing.T) {
 		assert.NotEqual(t, first, second)
 		assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`), first)
 	})
+}
+
+// blockingTarget records when delivery starts and blocks until released.
+type blockingTarget struct {
+	entered chan string
+	release chan struct{}
+}
+
+// Send records the notification ID and waits for release or cancellation.
+func (t *blockingTarget) Send(ctx context.Context, payload Payload) (DeliveryResult, error) {
+	select {
+	case t.entered <- payload.ID():
+	case <-ctx.Done():
+		return DeliveryResult{}, ctx.Err()
+	}
+
+	select {
+	case <-t.release:
+		return DeliveryResult{Status: "sent"}, nil
+	case <-ctx.Done():
+		return DeliveryResult{}, ctx.Err()
+	}
+}
+
+// Type returns the target type.
+func (t *blockingTarget) Type() string { return "blocking" }
+
+// receiveWorkerEntry waits for a worker to enter target delivery.
+func receiveWorkerEntry(t *testing.T, entered <-chan string) string {
+	t.Helper()
+
+	select {
+	case id := <-entered:
+		return id
+	case <-time.After(time.Second):
+		t.Fatal("timed out waiting for worker delivery")
+		return ""
+	}
 }
