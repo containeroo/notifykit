@@ -181,6 +181,16 @@ receivers := notify.Receivers{
 err := notify.Send(ctx, alert, receivers, logger)
 ```
 
+Notifykit normalizes receiver configuration when receivers enter `Send`, `SendTo`, `NewReceivers`, `NewDispatcher`, or `NewManager`:
+
+```text
+empty Receiver.ID      defaults to the receiver map key
+empty Receiver.Name    defaults to Receiver.ID
+nil receiver value     skipped during routing and delivery
+```
+
+Normalization is applied to internal receiver copies, so the receiver values passed by the caller are not modified.
+
 ## Manager example
 
 For queued asynchronous delivery, use `notify.NewManager`, start it once, and enqueue notifications over time.
@@ -200,6 +210,14 @@ if err != nil {
 }
 fmt.Println("queued notification", queueID)
 ```
+
+Managers use one worker by default. Use `notify.WithWorkers` when queued notifications should be delivered concurrently:
+
+```go
+manager, err := notify.NewManager(receivers, logger, notify.WithWorkers(4))
+```
+
+When more than one worker is configured, different notifications may call the same target at the same time. Built-in targets are safe for this; custom targets should also be safe for concurrent `Send` calls.
 
 ## Flow
 
@@ -274,8 +292,6 @@ nil or empty ReceiverIDs()        send to all configured receivers
 unknown receiver ID               skip that receiver and log a warning
 ```
 
-For compatibility, notifications that still implement `ReceiverNames() []string` are also supported, but new code should use `ReceiverIDs`.
-
 ## Receivers and targets
 
 A receiver groups one or more delivery targets and optional receiver-scoped settings.
@@ -287,7 +303,7 @@ receiver := notify.NewReceiver("ops", slackWebhook, emailTarget).
     WithRetry(notify.RetryConfig{Count: 2, Backoff: time.Second})
 ```
 
-`Receiver.ID` is the routing identifier. `Receiver.Name` is passed into the notification payload as the receiver name. When `Name` is empty, Notifykit defaults it to the receiver ID.
+`Receiver.ID` is the routing identifier. `Receiver.Name` is passed into the notification payload as the receiver name. When `ID` or `Name` is empty, Notifykit fills defaults from the receiver map key on internal copies during normalization.
 
 ## Webhook target dependencies
 
