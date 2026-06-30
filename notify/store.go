@@ -2,19 +2,19 @@ package notify
 
 import "sync"
 
-// Store keeps queued notifications by queue id.
-type Store struct {
+// store keeps queued notifications by queue id.
+type store struct {
 	mu    sync.RWMutex
 	items map[string]Notification
 }
 
-// NewStore initializes an empty in-memory notification store.
-func NewStore() *Store {
-	return &Store{items: make(map[string]Notification)}
+// newStore initializes an empty in-memory notification store.
+func newStore() *store {
+	return &store{items: make(map[string]Notification)}
 }
 
-// Put stores a notification by queue id.
-func (s *Store) Put(id string, n Notification) {
+// put stores a notification by queue id.
+func (s *store) put(id string, n Notification) {
 	if s == nil || id == "" || n == nil {
 		return
 	}
@@ -23,8 +23,8 @@ func (s *Store) Put(id string, n Notification) {
 	s.mu.Unlock()
 }
 
-// Get returns a notification by queue id.
-func (s *Store) Get(id string) (Notification, bool) {
+// get returns a notification by queue id.
+func (s *store) get(id string) (Notification, bool) {
 	if s == nil {
 		return nil, false
 	}
@@ -34,8 +34,8 @@ func (s *Store) Get(id string) (Notification, bool) {
 	return n, ok
 }
 
-// Delete removes a notification by queue id.
-func (s *Store) Delete(id string) {
+// delete removes a notification by queue id.
+func (s *store) delete(id string) {
 	if s == nil {
 		return
 	}

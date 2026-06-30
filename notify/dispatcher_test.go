@@ -17,7 +17,7 @@ func TestNewDispatcher(t *testing.T) {
 	t.Run("requires store", func(t *testing.T) {
 		t.Parallel()
 
-		dispatcher, err := NewDispatcher(nil, make(chan string), &testDelivery{}, nil, testLogger())
+		dispatcher, err := newDispatcher(nil, make(chan string), &testDelivery{}, nil, testLogger())
 		require.Error(t, err)
 		assert.Nil(t, dispatcher)
 	})
@@ -25,7 +25,7 @@ func TestNewDispatcher(t *testing.T) {
 	t.Run("requires mailbox", func(t *testing.T) {
 		t.Parallel()
 
-		dispatcher, err := NewDispatcher(NewStore(), nil, &testDelivery{}, nil, testLogger())
+		dispatcher, err := newDispatcher(newStore(), nil, &testDelivery{}, nil, testLogger())
 		require.Error(t, err)
 		assert.Nil(t, dispatcher)
 	})
@@ -33,7 +33,7 @@ func TestNewDispatcher(t *testing.T) {
 	t.Run("requires delivery", func(t *testing.T) {
 		t.Parallel()
 
-		dispatcher, err := NewDispatcher(NewStore(), make(chan string), nil, nil, testLogger())
+		dispatcher, err := newDispatcher(newStore(), make(chan string), nil, nil, testLogger())
 		require.Error(t, err)
 		assert.Nil(t, dispatcher)
 	})
@@ -41,7 +41,7 @@ func TestNewDispatcher(t *testing.T) {
 	t.Run("constructs dispatcher with default logger", func(t *testing.T) {
 		t.Parallel()
 
-		dispatcher, err := NewDispatcher(NewStore(), make(chan string), &testDelivery{}, nil, nil)
+		dispatcher, err := newDispatcher(newStore(), make(chan string), &testDelivery{}, nil, nil)
 		require.NoError(t, err)
 		assert.NotNil(t, dispatcher)
 	})
@@ -49,7 +49,7 @@ func TestNewDispatcher(t *testing.T) {
 	t.Run("constructs dispatcher with empty receivers", func(t *testing.T) {
 		t.Parallel()
 
-		dispatcher, err := NewDispatcher(NewStore(), make(chan string), &testDelivery{}, nil, testLogger())
+		dispatcher, err := newDispatcher(newStore(), make(chan string), &testDelivery{}, nil, testLogger())
 		require.NoError(t, err)
 		assert.NotNil(t, dispatcher)
 		assert.Empty(t, dispatcher.receivers)
@@ -63,24 +63,24 @@ func TestDispatcherStart(t *testing.T) {
 	t.Run("nil dispatcher returns", func(t *testing.T) {
 		t.Parallel()
 
-		var dispatcher *Dispatcher
-		dispatcher.Start(context.Background())
+		var dispatcher *dispatcher
+		dispatcher.start(context.Background())
 	})
 
 	t.Run("dispatches queued id", func(t *testing.T) {
 		t.Parallel()
 
-		store := NewStore()
+		store := newStore()
 		mailbox := make(chan string, 1)
 		delivery := &testDelivery{}
 		receiver := &Receiver{Name: "ops"}
-		dispatcher, err := NewDispatcher(store, mailbox, delivery, Receivers{"ops": receiver}, testLogger())
+		dispatcher, err := newDispatcher(store, mailbox, delivery, Receivers{"ops": receiver}, testLogger())
 		require.NoError(t, err)
 
-		store.Put("q1", testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
+		store.put("q1", testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
 		mailbox <- "q1"
 		close(mailbox)
-		dispatcher.Start(context.Background())
+		dispatcher.start(context.Background())
 
 		assert.Equal(t, 1, delivery.calls)
 	})
@@ -90,12 +90,12 @@ func TestDispatcherStart(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		dispatcher, err := NewDispatcher(NewStore(), make(chan string), &testDelivery{}, nil, testLogger())
+		dispatcher, err := newDispatcher(newStore(), make(chan string), &testDelivery{}, nil, testLogger())
 		require.NoError(t, err)
 
 		done := make(chan struct{})
 		go func() {
-			dispatcher.Start(ctx)
+			dispatcher.start(ctx)
 			close(done)
 		}()
 
@@ -115,7 +115,7 @@ func TestDispatcherDispatch(t *testing.T) {
 		t.Parallel()
 
 		delivery := &testDelivery{}
-		dispatcher, err := NewDispatcher(NewStore(), make(chan string), delivery, nil, testLogger())
+		dispatcher, err := newDispatcher(newStore(), make(chan string), delivery, nil, testLogger())
 		require.NoError(t, err)
 
 		dispatcher.dispatch(context.Background(), "missing")
@@ -125,16 +125,16 @@ func TestDispatcherDispatch(t *testing.T) {
 	t.Run("deletes queued notification", func(t *testing.T) {
 		t.Parallel()
 
-		store := NewStore()
+		store := newStore()
 		delivery := &testDelivery{}
 		receiver := &Receiver{Name: "ops"}
-		dispatcher, err := NewDispatcher(store, make(chan string), delivery, Receivers{"ops": receiver}, testLogger())
+		dispatcher, err := newDispatcher(store, make(chan string), delivery, Receivers{"ops": receiver}, testLogger())
 		require.NoError(t, err)
 
-		store.Put("q1", testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
+		store.put("q1", testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
 		dispatcher.dispatch(context.Background(), "q1")
 
-		_, ok := store.Get("q1")
+		_, ok := store.get("q1")
 		assert.False(t, ok)
 		assert.Equal(t, 1, delivery.calls)
 	})
@@ -142,12 +142,12 @@ func TestDispatcherDispatch(t *testing.T) {
 	t.Run("does not dispatch without receivers", func(t *testing.T) {
 		t.Parallel()
 
-		store := NewStore()
+		store := newStore()
 		delivery := &testDelivery{}
-		dispatcher, err := NewDispatcher(store, make(chan string), delivery, Receivers{}, testLogger())
+		dispatcher, err := newDispatcher(store, make(chan string), delivery, Receivers{}, testLogger())
 		require.NoError(t, err)
 
-		store.Put("q1", testNotification{id: "n1", receivers: []ReceiverID{"missing"}})
+		store.put("q1", testNotification{id: "n1", receivers: []ReceiverID{"missing"}})
 		dispatcher.dispatch(context.Background(), "q1")
 
 		assert.Equal(t, 0, delivery.calls)
@@ -156,13 +156,13 @@ func TestDispatcherDispatch(t *testing.T) {
 	t.Run("logs delivery error", func(t *testing.T) {
 		t.Parallel()
 
-		store := NewStore()
+		store := newStore()
 		delivery := &testDelivery{err: errors.New("boom")}
 		receiver := &Receiver{Name: "ops"}
-		dispatcher, err := NewDispatcher(store, make(chan string), delivery, Receivers{"ops": receiver}, testLogger())
+		dispatcher, err := newDispatcher(store, make(chan string), delivery, Receivers{"ops": receiver}, testLogger())
 		require.NoError(t, err)
 
-		store.Put("q1", testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
+		store.put("q1", testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
 		dispatcher.dispatch(context.Background(), "q1")
 
 		assert.Equal(t, 1, delivery.calls)
@@ -177,7 +177,7 @@ func TestDispatcherResolveReceivers(t *testing.T) {
 		"ops": {Name: "ops"},
 		"dev": {Name: "dev"},
 	}
-	dispatcher, err := NewDispatcher(NewStore(), make(chan string), &testDelivery{}, receivers, testLogger())
+	dispatcher, err := newDispatcher(newStore(), make(chan string), &testDelivery{}, receivers, testLogger())
 	require.NoError(t, err)
 
 	t.Run("returns all receivers without names", func(t *testing.T) {
@@ -205,7 +205,7 @@ func TestDispatcherResolveReceivers(t *testing.T) {
 	t.Run("skips nil receivers", func(t *testing.T) {
 		t.Parallel()
 
-		dispatcher, err := NewDispatcher(NewStore(), make(chan string), &testDelivery{}, Receivers{"nil": nil}, testLogger())
+		dispatcher, err := newDispatcher(newStore(), make(chan string), &testDelivery{}, Receivers{"nil": nil}, testLogger())
 		require.NoError(t, err)
 
 		out := dispatcher.resolveReceivers(nil)

@@ -17,7 +17,7 @@ func TestWithRetry(t *testing.T) {
 	t.Run("returns success on first attempt", func(t *testing.T) {
 		t.Parallel()
 
-		result, attempts, err := WithRetry(context.Background(), testLogger(), RetryConfig{Count: 3}, func() (DeliveryResult, error) {
+		result, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 3}, func() (DeliveryResult, error) {
 			return DeliveryResult{Status: "ok"}, nil
 		})
 		require.NoError(t, err)
@@ -29,7 +29,7 @@ func TestWithRetry(t *testing.T) {
 		t.Parallel()
 
 		calls := 0
-		_, attempts, err := WithRetry(context.Background(), testLogger(), RetryConfig{Count: 2}, func() (DeliveryResult, error) {
+		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 2}, func() (DeliveryResult, error) {
 			calls++
 			if calls < 2 {
 				return DeliveryResult{}, errors.New("not yet")

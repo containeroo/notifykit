@@ -32,9 +32,9 @@ type ReceiverRouter interface {
 	ReceiverIDs() []ReceiverID
 }
 
-// Delivery sends a receiver-scoped payload to receivers.
-type Delivery interface {
-	Dispatch(ctx context.Context, payload Payload, receivers []*Receiver) error
+// delivery sends a receiver-scoped payload to receivers.
+type delivery interface {
+	dispatch(ctx context.Context, payload Payload, receivers []*Receiver) error
 }
 
 // Target delivers a notification payload to one destination.
@@ -57,11 +57,6 @@ type DeliveryResult struct {
 	// may contain sensitive data such as webhook URLs, tokens, echoed payloads,
 	// or authentication diagnostics.
 	Response string
-}
-
-// ResultTarget returns target-specific delivery details.
-type ResultTarget interface {
-	SendResult(ctx context.Context, payload Payload) (DeliveryResult, error)
 }
 
 // Notifier enqueues notifications for delivery.

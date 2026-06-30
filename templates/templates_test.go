@@ -46,12 +46,12 @@ func TestWithFuncs(t *testing.T) {
 	assert.NotContains(t, cfg.funcs, "lower")
 }
 
-// TestNew tests expected behavior.
-func TestNew(t *testing.T) {
+// TestNewBuiltins tests expected behavior.
+func TestNewBuiltins(t *testing.T) {
 	t.Parallel()
 
 	files := fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}}
-	registry := New(files)
+	registry := newBuiltins(files)
 	assert.NotNil(t, registry.files)
 }
 
@@ -59,7 +59,7 @@ func TestNew(t *testing.T) {
 func TestFuncMap(t *testing.T) {
 	t.Parallel()
 
-	funcs := FuncMap()
+	funcs := funcMap()
 
 	assert.NotEmpty(t, funcs)
 	assert.Contains(t, funcs, "json")
@@ -84,32 +84,32 @@ func TestIsBuiltin(t *testing.T) {
 	t.Run("matches builtin prefix", func(t *testing.T) {
 		t.Parallel()
 
-		assert.True(t, IsBuiltin(" builtin:slack "))
+		assert.True(t, isBuiltin(" builtin:slack "))
 	})
 
 	t.Run("rejects file path", func(t *testing.T) {
 		t.Parallel()
 
-		assert.False(t, IsBuiltin("slack.tmpl"))
+		assert.False(t, isBuiltin("slack.tmpl"))
 	})
 }
 
-// TestName tests expected behavior.
-func TestName(t *testing.T) {
+// TestBuiltinName tests expected behavior.
+func TestBuiltinName(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, "slack", Name(" builtin:slack "))
+	assert.Equal(t, "slack", builtinName(" builtin:slack "))
 }
 
-// TestTemplatesRead tests expected behavior.
-func TestTemplatesRead(t *testing.T) {
+// TestBuiltinTemplatesRead tests expected behavior.
+func TestBuiltinTemplatesRead(t *testing.T) {
 	t.Parallel()
 
 	t.Run("reads builtin template", func(t *testing.T) {
 		t.Parallel()
 
-		registry := New(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}})
-		name, body, err := registry.Read("builtin:hello")
+		registry := newBuiltins(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}})
+		name, body, err := registry.read("builtin:hello")
 		require.NoError(t, err)
 		assert.Equal(t, "hello.tmpl", name)
 		assert.Equal(t, "hello", body)
@@ -118,74 +118,74 @@ func TestTemplatesRead(t *testing.T) {
 	t.Run("requires name", func(t *testing.T) {
 		t.Parallel()
 
-		registry := New(fstest.MapFS{})
-		_, _, err := registry.Read("builtin:")
+		registry := newBuiltins(fstest.MapFS{})
+		_, _, err := registry.read("builtin:")
 		require.Error(t, err)
 	})
 
 	t.Run("rejects path separators", func(t *testing.T) {
 		t.Parallel()
 
-		registry := New(fstest.MapFS{})
-		_, _, err := registry.Read("builtin:../secret")
+		registry := newBuiltins(fstest.MapFS{})
+		_, _, err := registry.read("builtin:../secret")
 		require.Error(t, err)
 	})
 
 	t.Run("requires configured filesystem", func(t *testing.T) {
 		t.Parallel()
 
-		_, _, err := New(nil).Read("builtin:hello")
+		_, _, err := newBuiltins(nil).read("builtin:hello")
 		require.Error(t, err)
 	})
 
 	t.Run("wraps read errors", func(t *testing.T) {
 		t.Parallel()
 
-		_, _, err := New(fstest.MapFS{}).Read("builtin:missing")
+		_, _, err := newBuiltins(fstest.MapFS{}).read("builtin:missing")
 		require.Error(t, err)
 	})
 }
 
-// TestTemplatesExists tests expected behavior.
-func TestTemplatesExists(t *testing.T) {
+// TestBuiltinTemplatesExists tests expected behavior.
+func TestBuiltinTemplatesExists(t *testing.T) {
 	t.Parallel()
 
 	t.Run("returns nil when template exists", func(t *testing.T) {
 		t.Parallel()
 
-		registry := New(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}})
-		err := registry.Exists("builtin:hello")
+		registry := newBuiltins(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}})
+		err := registry.exists("builtin:hello")
 		require.NoError(t, err)
 	})
 
 	t.Run("returns read error", func(t *testing.T) {
 		t.Parallel()
 
-		registry := New(fstest.MapFS{})
-		err := registry.Exists("builtin:missing")
+		registry := newBuiltins(fstest.MapFS{})
+		err := registry.exists("builtin:missing")
 		require.Error(t, err)
 	})
 }
 
-// TestTemplatesNames tests expected behavior.
-func TestTemplatesNames(t *testing.T) {
+// TestBuiltinTemplatesNames tests expected behavior.
+func TestBuiltinTemplatesNames(t *testing.T) {
 	t.Parallel()
 
 	t.Run("returns sorted template names", func(t *testing.T) {
 		t.Parallel()
 
-		registry := New(fstest.MapFS{
+		registry := newBuiltins(fstest.MapFS{
 			"z.tmpl":     {Data: []byte("z")},
 			"a.tmpl":     {Data: []byte("a")},
 			"skip.txt":   {Data: []byte("skip")},
 			"dir/x.tmpl": {Data: []byte("x")},
 		})
-		assert.Equal(t, []string{"a", "z"}, registry.Names())
+		assert.Equal(t, []string{"a", "z"}, registry.names())
 	})
 
 	t.Run("returns nil without filesystem", func(t *testing.T) {
 		t.Parallel()
-		assert.Nil(t, New(nil).Names())
+		assert.Nil(t, newBuiltins(nil).names())
 	})
 }
 
@@ -285,7 +285,7 @@ func TestReadSource(t *testing.T) {
 	t.Run("reads builtin source", func(t *testing.T) {
 		t.Parallel()
 
-		name, body, err := ReadSource(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}}, "builtin:hello")
+		name, body, err := readSource(fstest.MapFS{"hello.tmpl": {Data: []byte("hello")}}, "builtin:hello")
 		require.NoError(t, err)
 		assert.Equal(t, "hello.tmpl", name)
 		assert.Equal(t, "hello", body)
@@ -295,7 +295,7 @@ func TestReadSource(t *testing.T) {
 		t.Parallel()
 
 		path := writeTempTemplate(t, "hello")
-		name, body, err := ReadSource(nil, path)
+		name, body, err := readSource(nil, path)
 		require.NoError(t, err)
 		assert.Equal(t, filepath.Base(path), name)
 		assert.Equal(t, "hello", body)
@@ -304,7 +304,7 @@ func TestReadSource(t *testing.T) {
 	t.Run("requires source", func(t *testing.T) {
 		t.Parallel()
 
-		_, _, err := ReadSource(nil, "")
+		_, _, err := readSource(nil, "")
 		require.Error(t, err)
 	})
 }
@@ -316,9 +316,9 @@ func TestParseSource(t *testing.T) {
 	t.Run("parses source", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := ParseSource(fstest.MapFS{"hello.tmpl": {Data: []byte("hello {{ .Name }}")}}, "builtin:hello")
+		parsed, err := parseSource(fstest.MapFS{"hello.tmpl": {Data: []byte("hello {{ .Name }}")}}, "builtin:hello")
 		require.NoError(t, err)
-		out, err := Execute(parsed, map[string]any{"Name": "world"})
+		out, err := execute(parsed, map[string]any{"Name": "world"})
 		require.NoError(t, err)
 		assert.Equal(t, "hello world", out)
 	})
@@ -326,7 +326,7 @@ func TestParseSource(t *testing.T) {
 	t.Run("wraps parse error", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := ParseSource(
+		parsed, err := parseSource(
 			fstest.MapFS{
 				"bad.tmpl": {Data: []byte("{{")},
 			},
@@ -344,9 +344,9 @@ func TestParse(t *testing.T) {
 	t.Run("parses template", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := Parse("hello", "hello {{ .Name }}")
+		parsed, err := parse("hello", "hello {{ .Name }}")
 		require.NoError(t, err)
-		out, err := Execute(parsed, map[string]any{"Name": "world"})
+		out, err := execute(parsed, map[string]any{"Name": "world"})
 		require.NoError(t, err)
 		assert.Equal(t, "hello world", out)
 	})
@@ -354,18 +354,18 @@ func TestParse(t *testing.T) {
 	t.Run("uses strict missing key by default", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := Parse("hello", "{{ .Missing }}")
+		parsed, err := parse("hello", "{{ .Missing }}")
 		require.NoError(t, err)
-		_, err = Execute(parsed, map[string]any{})
+		_, err = execute(parsed, map[string]any{})
 		require.Error(t, err)
 	})
 
 	t.Run("allows default missing key behavior", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := Parse("hello", "{{ .Missing }}", WithMissingKey(MissingKeyDefault))
+		parsed, err := parse("hello", "{{ .Missing }}", WithMissingKey(MissingKeyDefault))
 		require.NoError(t, err)
-		out, err := Execute(parsed, map[string]any{})
+		out, err := execute(parsed, map[string]any{})
 		require.NoError(t, err)
 		assert.Equal(t, "<no value>", out)
 	})
@@ -373,10 +373,10 @@ func TestParse(t *testing.T) {
 	t.Run("uses default helper functions", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := Parse("hello", `{{ .Channel | default "alertmanager" | withPrefix "#" }} {{ when .Resolved "up" "down" }} {{ optional "%s: %s" .Label .Value }}`)
+		parsed, err := parse("hello", `{{ .Channel | default "alertmanager" | withPrefix "#" }} {{ when .Resolved "up" "down" }} {{ optional "%s: %s" .Label .Value }}`)
 		require.NoError(t, err)
 
-		out, err := Execute(parsed, map[string]any{
+		out, err := execute(parsed, map[string]any{
 			"Channel":  "",
 			"Resolved": true,
 			"Label":    "Status",
@@ -389,10 +389,10 @@ func TestParse(t *testing.T) {
 	t.Run("uses custom function", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := Parse("hello", `{{ "notifykit" | upper }}`, WithFunc("upper", strings.ToUpper))
+		parsed, err := parse("hello", `{{ "notifykit" | upper }}`, WithFunc("upper", strings.ToUpper))
 		require.NoError(t, err)
 
-		out, err := Execute(parsed, nil)
+		out, err := execute(parsed, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "NOTIFYKIT", out)
 	})
@@ -400,12 +400,12 @@ func TestParse(t *testing.T) {
 	t.Run("uses custom function map", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := Parse("hello", `{{ "notifykit" | wrap }}`, WithFuncs(template.FuncMap{
+		parsed, err := parse("hello", `{{ "notifykit" | wrap }}`, WithFuncs(template.FuncMap{
 			"wrap": func(value string) string { return "[" + value + "]" },
 		}))
 		require.NoError(t, err)
 
-		out, err := Execute(parsed, nil)
+		out, err := execute(parsed, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "[notifykit]", out)
 	})
@@ -413,10 +413,10 @@ func TestParse(t *testing.T) {
 	t.Run("uses tmplfuncs helpers by default", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := Parse("hello", `{{ .Duration | duration }}`)
+		parsed, err := parse("hello", `{{ .Duration | duration }}`)
 		require.NoError(t, err)
 
-		out, err := Execute(parsed, map[string]any{"Duration": 90 * time.Second})
+		out, err := execute(parsed, map[string]any{"Duration": 90 * time.Second})
 		require.NoError(t, err)
 		assert.Equal(t, "1m30s", out)
 	})
@@ -424,7 +424,7 @@ func TestParse(t *testing.T) {
 	t.Run("rejects invalid missing key policy", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := Parse("hello", "hello", WithMissingKey(MissingKey("bad")))
+		parsed, err := parse("hello", "hello", WithMissingKey(MissingKey("bad")))
 		require.Error(t, err)
 		assert.Nil(t, parsed)
 	})
@@ -531,7 +531,7 @@ func TestExecute(t *testing.T) {
 		t.Parallel()
 
 		parsed := template.Must(template.New("hello").Parse("hello"))
-		out, err := Execute(parsed, nil)
+		out, err := execute(parsed, nil)
 		require.NoError(t, err)
 		assert.Equal(t, "hello", out)
 	})
@@ -539,7 +539,7 @@ func TestExecute(t *testing.T) {
 	t.Run("requires template", func(t *testing.T) {
 		t.Parallel()
 
-		out, err := Execute(nil, nil)
+		out, err := execute(nil, nil)
 		require.Error(t, err)
 		assert.Empty(t, out)
 	})

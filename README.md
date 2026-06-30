@@ -181,7 +181,7 @@ receivers := notify.Receivers{
 err := notify.Send(ctx, alert, receivers, logger)
 ```
 
-Notifykit normalizes receiver configuration when receivers enter `Send`, `SendTo`, `NewReceivers`, `NewDispatcher`, or `NewManager`:
+Notifykit normalizes receiver configuration when receivers enter `Send`, `SendTo`, `NewReceivers`, or `NewManager`:
 
 ```text
 empty Receiver.ID      defaults to the receiver map key
@@ -228,14 +228,14 @@ flowchart LR
     C --> D[notify.SendTo]
     C --> E[notify.Send]
     C --> F[Manager.Enqueue]
-    F --> G[Store]
+    F --> G[internal store]
     F --> H[Mailbox]
-    H --> I[Dispatcher]
+    H --> I[internal dispatcher]
     D --> J[Build receiver map]
     E --> K[Resolve receivers]
     I --> K
     J --> K
-    K --> L[Delivery]
+    K --> L[internal delivery]
     L --> M[Retry]
     M --> N[Target]
     N --> O[Render title or subject]
@@ -365,7 +365,7 @@ tmpl, err := templates.ParseStringTemplate(
 )
 ```
 
-Notifykit uses `github.com/containeroo/tmplfuncs` for its default helpers and exposes the full `tmplfuncs.FuncMap()` by default. This includes helpers such as `json`, `default`, `coalesce`, `formatTime`, `trim`, `upper`, `lower`, `withPrefix`, `withSuffix`, `optional`, `when`, and `duration`:
+Notifykit uses `github.com/containeroo/tmplfuncs` for its default helpers. This includes helpers such as `json`, `default`, `coalesce`, `formatTime`, `trim`, `upper`, `lower`, `withPrefix`, `withSuffix`, `optional`, `when`, and `duration`:
 
 ```go
 body, err := templates.ParseTemplate(

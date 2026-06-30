@@ -7,28 +7,28 @@ import (
 	"log/slog"
 )
 
-// Dispatcher dequeues notifications and delivers them.
-type Dispatcher struct {
-	store     *Store
+// dispatcher dequeues notifications and delivers them.
+type dispatcher struct {
+	store     *store
 	mailbox   <-chan string
-	delivery  Delivery
+	delivery  delivery
 	receivers Receivers
 	logger    *slog.Logger
 }
 
-// NewDispatcher constructs a dispatcher for an existing store, mailbox,
+// newDispatcher constructs a dispatcher for an existing store, mailbox,
 // delivery engine, and receiver map.
 //
 // Most applications should use NewManager for queued asynchronous delivery or
-// Send for simple synchronous delivery. NewDispatcher is useful when callers
-// need to provide their own store, mailbox, or delivery implementation.
-func NewDispatcher(
-	store *Store,
+// Send for simple synchronous delivery. It is kept internal so Notifykit exposes
+// only the higher-level Send and Manager APIs.
+func newDispatcher(
+	store *store,
 	mailbox <-chan string,
-	delivery Delivery,
+	delivery delivery,
 	receivers Receivers,
 	logger *slog.Logger,
-) (*Dispatcher, error) {
+) (*dispatcher, error) {
 	if store == nil {
 		return nil, errors.New("store is required")
 	}
@@ -44,7 +44,7 @@ func NewDispatcher(
 	}
 	receivers = normalizeReceivers(receivers)
 
-	return &Dispatcher{
+	return &dispatcher{
 		store:     store,
 		mailbox:   mailbox,
 		delivery:  delivery,
@@ -53,8 +53,8 @@ func NewDispatcher(
 	}, nil
 }
 
-// Start processes queued notifications until ctx is canceled or the mailbox closes.
-func (d *Dispatcher) Start(ctx context.Context) {
+// start processes queued notifications until ctx is canceled or the mailbox closes.
+func (d *dispatcher) start(ctx context.Context) {
 	if d == nil {
 		return
 	}
@@ -73,13 +73,13 @@ func (d *Dispatcher) Start(ctx context.Context) {
 }
 
 // dispatch delivers one queued notification by queue id.
-func (d *Dispatcher) dispatch(ctx context.Context, queueID string) {
-	n, ok := d.store.Get(queueID)
+func (d *dispatcher) dispatch(ctx context.Context, queueID string) {
+	n, ok := d.store.get(queueID)
 	if !ok {
 		d.logger.Warn("notification not found", "queueID", queueID)
 		return
 	}
-	d.store.Delete(queueID)
+	d.store.delete(queueID)
 
 	receivers := d.resolveReceivers(receiverIDs(n))
 	if len(receivers) == 0 {
@@ -88,7 +88,7 @@ func (d *Dispatcher) dispatch(ctx context.Context, queueID string) {
 	}
 
 	payload := Payload{Notification: n}
-	if err := d.delivery.Dispatch(ctx, payload, receivers); err != nil {
+	if err := d.delivery.dispatch(ctx, payload, receivers); err != nil {
 		d.logger.Error("notification delivery failed", "queueID", queueID, "notificationID", n.ID(), "error", err)
 		return
 	}
@@ -96,6 +96,6 @@ func (d *Dispatcher) dispatch(ctx context.Context, queueID string) {
 }
 
 // resolveReceivers returns all named receivers or every receiver when no IDs are set.
-func (d *Dispatcher) resolveReceivers(ids []ReceiverID) []*Receiver {
+func (d *dispatcher) resolveReceivers(ids []ReceiverID) []*Receiver {
 	return resolveReceivers(d.receivers, ids, d.logger)
 }

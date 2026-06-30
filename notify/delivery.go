@@ -12,8 +12,8 @@ type deliveryEngine struct {
 	logger *slog.Logger
 }
 
-// NewDelivery constructs the default receiver delivery engine.
-func NewDelivery(logger *slog.Logger) Delivery {
+// newDelivery constructs the default receiver delivery engine.
+func newDelivery(logger *slog.Logger) delivery {
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
@@ -21,8 +21,8 @@ func NewDelivery(logger *slog.Logger) Delivery {
 	return &deliveryEngine{logger: logger}
 }
 
-// Dispatch sends a notification payload to each receiver target.
-func (d *deliveryEngine) Dispatch(ctx context.Context, payload Payload, receivers []*Receiver) error {
+// dispatch sends a notification payload to each receiver target.
+func (d *deliveryEngine) dispatch(ctx context.Context, payload Payload, receivers []*Receiver) error {
 	if d == nil {
 		return errors.New("delivery is nil")
 	}

@@ -34,7 +34,7 @@ func Send(ctx context.Context, notification Notification, receivers Receivers, l
 		return errors.New("no receivers resolved")
 	}
 
-	return NewDelivery(logger).Dispatch(ctx, Payload{Notification: notification}, resolved)
+	return newDelivery(logger).dispatch(ctx, Payload{Notification: notification}, resolved)
 }
 
 // normalizeReceivers applies receiver ID and display-name defaults.

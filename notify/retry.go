@@ -8,25 +8,6 @@ import (
 	"time"
 )
 
-// WithRetry executes fn with retry attempts and exponential backoff.
-func WithRetry(
-	ctx context.Context,
-	logger *slog.Logger,
-	cfg RetryConfig,
-	fn func() (DeliveryResult, error),
-) (DeliveryResult, int, error) {
-	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	}
-	if ctx == nil {
-		return DeliveryResult{}, 0, errors.New("context is nil")
-	}
-	if fn == nil {
-		return DeliveryResult{}, 0, errors.New("retry function is nil")
-	}
-	return withRetry(ctx, logger, cfg, fn)
-}
-
 // withRetry executes fn until it succeeds, the context ends, or attempts run out.
 func withRetry(
 	ctx context.Context,

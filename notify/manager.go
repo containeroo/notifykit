@@ -15,9 +15,9 @@ var ErrManagerStarted = errors.New("manager already started")
 
 // Manager owns notification queueing and dispatch infrastructure.
 type Manager struct {
-	store      *Store
+	store      *store
 	mailbox    chan string
-	dispatcher *Dispatcher
+	dispatcher *dispatcher
 	receivers  Receivers
 
 	workers int
@@ -69,11 +69,11 @@ func NewManager(receivers Receivers, logger *slog.Logger, opts ...ManagerOption)
 	}
 
 	receivers = normalizeReceivers(receivers)
-	store := NewStore()
+	store := newStore()
 	mailbox := make(chan string, 128)
-	delivery := NewDelivery(logger)
+	delivery := newDelivery(logger)
 
-	dispatcher, err := NewDispatcher(store, mailbox, delivery, receivers, logger)
+	dispatcher, err := newDispatcher(store, mailbox, delivery, receivers, logger)
 	if err != nil {
 		return nil, err
 	}
@@ -113,13 +113,13 @@ func (m *Manager) Enqueue(ctx context.Context, n Notification) (string, error) {
 		return "", err
 	}
 
-	m.store.Put(id, n)
+	m.store.put(id, n)
 
 	select {
 	case m.mailbox <- id:
 		return id, nil
 	case <-ctx.Done():
-		m.store.Delete(id)
+		m.store.delete(id)
 		return "", ctx.Err()
 	}
 }
@@ -173,7 +173,7 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.started = true
 
 	for range m.workers {
-		go m.dispatcher.Start(ctx)
+		go m.dispatcher.start(ctx)
 	}
 
 	return nil

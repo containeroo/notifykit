@@ -11,9 +11,9 @@ import (
 func TestNewStore(t *testing.T) {
 	t.Parallel()
 
-	store := NewStore()
-	require.NotNil(t, store)
-	assert.NotNil(t, store.items)
+	s := newStore()
+	require.NotNil(t, s)
+	assert.NotNil(t, s.items)
 }
 
 // TestStorePut tests expected behavior.
@@ -23,21 +23,21 @@ func TestStorePut(t *testing.T) {
 	t.Run("ignores invalid input", func(t *testing.T) {
 		t.Parallel()
 
-		store := NewStore()
-		store.Put("", testNotification{id: "n1"})
-		store.Put("q1", nil)
-		assert.Empty(t, store.items)
+		s := newStore()
+		s.put("", testNotification{id: "n1"})
+		s.put("q1", nil)
+		assert.Empty(t, s.items)
 
-		var nilStore *Store
-		nilStore.Put("q1", testNotification{id: "n1"})
+		var nilStore *store
+		nilStore.put("q1", testNotification{id: "n1"})
 	})
 
 	t.Run("stores notification", func(t *testing.T) {
 		t.Parallel()
 
-		store := NewStore()
-		store.Put("q1", testNotification{id: "n1"})
-		n, ok := store.Get("q1")
+		s := newStore()
+		s.put("q1", testNotification{id: "n1"})
+		n, ok := s.get("q1")
 		require.True(t, ok)
 		assert.Equal(t, "n1", n.ID())
 	})
@@ -50,8 +50,8 @@ func TestStoreGet(t *testing.T) {
 	t.Run("nil store returns false", func(t *testing.T) {
 		t.Parallel()
 
-		var store *Store
-		n, ok := store.Get("q1")
+		var s *store
+		n, ok := s.get("q1")
 		assert.Nil(t, n)
 		assert.False(t, ok)
 	})
@@ -59,8 +59,8 @@ func TestStoreGet(t *testing.T) {
 	t.Run("missing id returns false", func(t *testing.T) {
 		t.Parallel()
 
-		store := NewStore()
-		n, ok := store.Get("missing")
+		s := newStore()
+		n, ok := s.get("missing")
 		assert.Nil(t, n)
 		assert.False(t, ok)
 	})
@@ -73,17 +73,17 @@ func TestStoreDelete(t *testing.T) {
 	t.Run("nil store returns", func(t *testing.T) {
 		t.Parallel()
 
-		var store *Store
-		store.Delete("q1")
+		var s *store
+		s.delete("q1")
 	})
 
 	t.Run("removes notification", func(t *testing.T) {
 		t.Parallel()
 
-		store := NewStore()
-		store.Put("q1", testNotification{id: "n1"})
-		store.Delete("q1")
-		_, ok := store.Get("q1")
+		s := newStore()
+		s.put("q1", testNotification{id: "n1"})
+		s.delete("q1")
+		_, ok := s.get("q1")
 		assert.False(t, ok)
 	})
 }

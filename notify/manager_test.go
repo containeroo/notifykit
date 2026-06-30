@@ -93,7 +93,7 @@ func TestManagerEnqueue(t *testing.T) {
 
 		queued := <-manager.mailbox
 		assert.Equal(t, id, queued)
-		n, ok := manager.store.Get(id)
+		n, ok := manager.store.get(id)
 		require.True(t, ok)
 		assert.Equal(t, "n1", n.ID())
 	})

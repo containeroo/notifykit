@@ -56,7 +56,7 @@ func (t *testTarget) Type() string {
 	return t.targetType
 }
 
-// testResultTarget records SendResult calls.
+// testResultTarget records Send calls with delivery details.
 type testResultTarget struct {
 	testTarget
 	result DeliveryResult
@@ -69,7 +69,7 @@ func (t *testResultTarget) Send(ctx context.Context, payload Payload) (DeliveryR
 	return t.result, t.err
 }
 
-// testDelivery records Dispatch calls.
+// testDelivery records dispatch calls.
 type testDelivery struct {
 	err       error
 	calls     int
@@ -77,8 +77,8 @@ type testDelivery struct {
 	receivers []*Receiver
 }
 
-// Dispatch records the payload and returns the configured error.
-func (d *testDelivery) Dispatch(ctx context.Context, payload Payload, receivers []*Receiver) error {
+// dispatch records the payload and returns the configured error.
+func (d *testDelivery) dispatch(ctx context.Context, payload Payload, receivers []*Receiver) error {
 	d.calls++
 	d.payload = payload
 	d.receivers = receivers

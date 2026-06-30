@@ -18,8 +18,8 @@ import (
 )
 
 const (
-	// BuiltinPrefix marks a template source as an embedded built-in template.
-	BuiltinPrefix = "builtin:"
+	// builtinPrefix marks a template source as an embedded built-in template.
+	builtinPrefix = "builtin:"
 )
 
 // MissingKey controls how templates behave when a map key is missing.
@@ -83,40 +83,40 @@ type StringTemplate struct {
 	tmpl *template.Template
 }
 
-// Templates reads built-in templates from an injected filesystem.
-type Templates struct {
+// builtinTemplates reads built-in templates from an injected filesystem.
+type builtinTemplates struct {
 	files fs.FS
 }
 
-// New creates a built-in template registry backed by files.
+// newBuiltins creates a built-in template registry backed by files.
 //
 // The returned registry is used for builtin: template sources. A nil filesystem
-// is allowed, but Read and Exists will return an error and Names will return nil.
-func New(files fs.FS) Templates {
-	return Templates{files: files}
+// is allowed, but read and exists will return an error and names will return nil.
+func newBuiltins(files fs.FS) builtinTemplates {
+	return builtinTemplates{files: files}
 }
 
-// FuncMap returns the shared default template helper functions.
+// funcMap returns the shared default template helper functions.
 //
 // Notifykit exposes all helpers provided by github.com/containeroo/tmplfuncs by
 // default. Applications can override or extend helpers with WithFunc or WithFuncs.
-func FuncMap() template.FuncMap {
+func funcMap() template.FuncMap {
 	return tmplfuncs.FuncMap()
 }
 
-// IsBuiltin reports whether source references an embedded built-in template.
-func IsBuiltin(source string) bool {
-	return strings.HasPrefix(strings.TrimSpace(source), BuiltinPrefix)
+// isBuiltin reports whether source references an embedded built-in template.
+func isBuiltin(source string) bool {
+	return strings.HasPrefix(strings.TrimSpace(source), builtinPrefix)
 }
 
-// Name trims the builtin prefix and surrounding whitespace from source.
-func Name(source string) string {
-	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(source), BuiltinPrefix))
+// builtinName trims the builtin prefix and surrounding whitespace from source.
+func builtinName(source string) string {
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(source), builtinPrefix))
 }
 
-// Read returns an embedded built-in template by name.
-func (t Templates) Read(source string) (filename string, body string, err error) {
-	name := Name(source)
+// read returns an embedded built-in template by name.
+func (t builtinTemplates) read(source string) (filename string, body string, err error) {
+	name := builtinName(source)
 	if name == "" {
 		return "", "", fmt.Errorf("built-in template name must not be empty")
 	}
@@ -136,14 +136,14 @@ func (t Templates) Read(source string) (filename string, body string, err error)
 	return filename, string(bodyBytes), nil
 }
 
-// Exists reports whether the named built-in template can be read.
-func (t Templates) Exists(source string) error {
-	_, _, err := t.Read(source)
+// exists reports whether the named built-in template can be read.
+func (t builtinTemplates) exists(source string) error {
+	_, _, err := t.read(source)
 	return err
 }
 
-// Names returns all available built-in template names.
-func (t Templates) Names() []string {
+// names returns all available built-in template names.
+func (t builtinTemplates) names() []string {
 	if t.files == nil {
 		return nil
 	}
@@ -200,21 +200,21 @@ func LoadFromFS(tmplFS fs.FS, path string, opts ...Option) (*Template, error) {
 
 // LoadSource reads and parses a template from a file path or builtin reference.
 func LoadSource(templateFS fs.FS, source string, opts ...Option) (*Template, error) {
-	parsed, err := ParseSource(templateFS, source, opts...)
+	parsed, err := parseSource(templateFS, source, opts...)
 	if err != nil {
 		return nil, err
 	}
 	return &Template{tmpl: parsed}, nil
 }
 
-// ReadSource reads a template from a file path or builtin reference.
-func ReadSource(templateFS fs.FS, source string) (name string, body string, err error) {
+// readSource reads a template from a file path or builtin reference.
+func readSource(templateFS fs.FS, source string) (name string, body string, err error) {
 	source = strings.TrimSpace(source)
 	if source == "" {
 		return "", "", errors.New("template source is required")
 	}
-	if IsBuiltin(source) {
-		return New(templateFS).Read(source)
+	if isBuiltin(source) {
+		return newBuiltins(templateFS).read(source)
 	}
 
 	bodyBytes, err := os.ReadFile(source)
@@ -224,28 +224,28 @@ func ReadSource(templateFS fs.FS, source string) (name string, body string, err 
 	return filepath.Base(source), string(bodyBytes), nil
 }
 
-// ParseSource reads and parses a template from a file path or builtin reference.
-func ParseSource(templateFS fs.FS, source string, opts ...Option) (*template.Template, error) {
-	name, body, err := ReadSource(templateFS, source)
+// parseSource reads and parses a template from a file path or builtin reference.
+func parseSource(templateFS fs.FS, source string, opts ...Option) (*template.Template, error) {
+	name, body, err := readSource(templateFS, source)
 	if err != nil {
 		return nil, err
 	}
 
-	parsed, err := Parse(name, body, opts...)
+	parsed, err := parse(name, body, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("parse template %q: %w", source, err)
 	}
 	return parsed, nil
 }
 
-// Parse parses one template string with the shared function map.
-func Parse(name, value string, opts ...Option) (*template.Template, error) {
+// parse parses one template string with the shared function map.
+func parse(name, value string, opts ...Option) (*template.Template, error) {
 	cfg, err := parseOptions(opts...)
 	if err != nil {
 		return nil, err
 	}
 
-	funcs := FuncMap()
+	funcs := funcMap()
 	maps.Copy(funcs, cfg.funcs)
 
 	tmpl := template.New(name).
@@ -264,7 +264,7 @@ func ParseTemplate(name, input string, opts ...Option) (*Template, error) {
 	if input == "" {
 		return nil, errors.New("template input is required")
 	}
-	parsed, err := Parse(name, input, opts...)
+	parsed, err := parse(name, input, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -276,7 +276,7 @@ func ParseStringTemplate(name, input string, opts ...Option) (*StringTemplate, e
 	if input == "" {
 		return nil, errors.New("template input is required")
 	}
-	parsed, err := Parse(name, input, opts...)
+	parsed, err := parse(name, input, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -316,8 +316,8 @@ func LoadStringFromFS(tmplFS fs.FS, path string, opts ...Option) (*StringTemplat
 	return ParseStringTemplate(path, string(data), opts...)
 }
 
-// Execute renders tmpl with data and returns the rendered string.
-func Execute(tmpl *template.Template, data any) (string, error) {
+// execute renders tmpl with data and returns the rendered string.
+func execute(tmpl *template.Template, data any) (string, error) {
 	if tmpl == nil {
 		return "", errors.New("template is nil")
 	}
@@ -345,7 +345,7 @@ func (t *StringTemplate) Render(data any) (string, error) {
 	if t == nil || t.tmpl == nil {
 		return "", errors.New("template is nil")
 	}
-	return Execute(t.tmpl, data)
+	return execute(t.tmpl, data)
 }
 
 // parseOptions applies template parse options and validates defaults.

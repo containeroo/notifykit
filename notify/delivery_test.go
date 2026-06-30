@@ -11,21 +11,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestNewDelivery tests expected behavior.
+// TestnewDelivery tests expected behavior.
 func TestNewDelivery(t *testing.T) {
 	t.Parallel()
 
 	t.Run("constructs delivery with default logger", func(t *testing.T) {
 		t.Parallel()
 
-		delivery := NewDelivery(nil)
+		delivery := newDelivery(nil)
 		assert.NotNil(t, delivery)
 	})
 
 	t.Run("constructs delivery with provided logger", func(t *testing.T) {
 		t.Parallel()
 
-		delivery := NewDelivery(testLogger())
+		delivery := newDelivery(testLogger())
 		assert.NotNil(t, delivery)
 	})
 }
@@ -38,20 +38,20 @@ func TestDeliveryEngineDispatch(t *testing.T) {
 		t.Parallel()
 
 		var delivery *deliveryEngine
-		err := delivery.Dispatch(context.Background(), Payload{}, nil)
+		err := delivery.dispatch(context.Background(), Payload{}, nil)
 		require.Error(t, err)
 	})
 
 	t.Run("sends to receiver target", func(t *testing.T) {
 		t.Parallel()
 
-		delivery := NewDelivery(testLogger())
+		delivery := newDelivery(testLogger())
 
 		target := &testTarget{}
 		n := testNotification{id: "n1"}
 		receiver := &Receiver{Name: "ops", Vars: map[string]any{"team": "platform"}, Targets: []Target{target}}
 
-		err := delivery.Dispatch(context.Background(), Payload{Notification: n}, []*Receiver{receiver})
+		err := delivery.dispatch(context.Background(), Payload{Notification: n}, []*Receiver{receiver})
 		require.NoError(t, err)
 		assert.Equal(t, 1, target.calls)
 		assert.Equal(t, "ops", target.payload.Receiver)
@@ -61,13 +61,13 @@ func TestDeliveryEngineDispatch(t *testing.T) {
 	t.Run("joins receiver errors", func(t *testing.T) {
 		t.Parallel()
 
-		delivery := NewDelivery(testLogger())
+		delivery := newDelivery(testLogger())
 
 		boom := errors.New("boom")
 		target := &testTarget{err: boom}
 		receiver := &Receiver{Name: "ops", Targets: []Target{target}}
 
-		err := delivery.Dispatch(context.Background(), Payload{Notification: testNotification{id: "n1"}}, []*Receiver{receiver, nil})
+		err := delivery.dispatch(context.Background(), Payload{Notification: testNotification{id: "n1"}}, []*Receiver{receiver, nil})
 		require.Error(t, err)
 		assert.ErrorIs(t, err, boom)
 		assert.Contains(t, err.Error(), "receiver is nil")
