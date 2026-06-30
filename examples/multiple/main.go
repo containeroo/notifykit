@@ -62,7 +62,7 @@ func main() {
 		panic(err)
 	}
 
-	body, err := templates.ParseTemplate("webhook", `{"text": {{ .Title | json }}, "receiver": {{ .Receiver | json }}}`)
+	body, err := templates.ParseTemplate("webhook", `{"text": {{ .Title | json }}, "receiver": {{ .Receiver | json }}}`, templates.WithDefaultFuncs())
 	if err != nil {
 		panic(err)
 	}

@@ -50,7 +50,7 @@ func main() {
         panic(err)
     }
 
-    body, err := templates.ParseTemplate("webhook", `{"text": {{ .Title | json }}}`)
+    body, err := templates.ParseTemplate("webhook", `{"text": {{ .Title | json }}}`, templates.WithDefaultFuncs())
     if err != nil {
         panic(err)
     }
@@ -348,11 +348,11 @@ target := email.New(
 
 ## Templates
 
-Templates use Go `text/template` plus Notifykit's default helper functions. The default helper map includes `json`, `default`, `withPrefix`, `optional`, and `when`, which are enough for the bundled Slack and email examples.
+Templates use Go `text/template`. No helper functions are enabled by default; opt in to Notifykit's default helpers with `WithDefaultFuncs`.
 
 ```go
 subject, err := templates.ParseStringTemplate("subject", `{{ .Service }} is {{ .Status }}`)
-body, err := templates.LoadSource(templateFS, "builtin:slack")
+body, err := templates.LoadSource(templateFS, "builtin:slack", templates.WithDefaultFuncs())
 ```
 
 Missing map keys fail by default. Use `WithMissingKey` for looser templates:
@@ -365,7 +365,7 @@ tmpl, err := templates.ParseStringTemplate(
 )
 ```
 
-Notifykit uses `github.com/containeroo/tmplfuncs` for its default helpers. This includes helpers such as `json`, `default`, `coalesce`, `formatTime`, `trim`, `upper`, `lower`, `withPrefix`, `withSuffix`, `optional`, `when`, and `duration`:
+`WithDefaultFuncs` enables the helper map returned by `DefaultFuncs`. Notifykit uses `github.com/containeroo/tmplfuncs` for these helpers, including `json`, `default`, `coalesce`, `formatTime`, `trim`, `upper`, `lower`, `withPrefix`, `withSuffix`, `optional`, `when`, and `duration`:
 
 ```go
 body, err := templates.ParseTemplate(
@@ -375,6 +375,7 @@ body, err := templates.ParseTemplate(
         "Expected by: " (.ExpectedBy | formatTime "2006-01-02 15:04:05 MST")
         | json
     }}}`,
+    templates.WithDefaultFuncs(),
 )
 ```
 
@@ -392,18 +393,25 @@ func formatDuration(d time.Duration) string {
     return d.Truncate(time.Second).String()
 }
 
-funcs := templates.WithFunc("formatDuration", formatDuration)
-
-subject, err := templates.ParseStringTemplate(
-    "subject",
-    `{{ .Service }} is {{ .Status }}`,
-    funcs,
+body, err := templates.ParseTemplate(
+    "webhook",
+    `{"text": {{ (.Duration | formatDuration) | json }}}`,
+    templates.WithDefaultFuncs(),
+    templates.WithFunc("formatDuration", formatDuration),
 )
+```
+
+For complete control, build a function map yourself and pass only the helpers you want:
+
+```go
+funcs := templates.DefaultFuncs()
+delete(funcs, "duration")
+funcs["formatDuration"] = formatDuration
 
 body, err := templates.ParseTemplate(
     "webhook",
     `{"text": {{ (.Duration | formatDuration) | json }}}`,
-    funcs,
+    templates.WithFuncs(funcs),
 )
 ```
 

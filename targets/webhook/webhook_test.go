@@ -604,7 +604,7 @@ func titleTemplate(t *testing.T) *templates.StringTemplate {
 // bodyTemplate supports tests.
 func bodyTemplate(t *testing.T, value string) *templates.Template {
 	t.Helper()
-	tmpl, err := templates.ParseTemplate("body", value)
+	tmpl, err := templates.ParseTemplate("body", value, templates.WithDefaultFuncs())
 	require.NoError(t, err)
 	return tmpl
 }

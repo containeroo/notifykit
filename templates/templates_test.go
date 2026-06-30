@@ -46,6 +46,16 @@ func TestWithFuncs(t *testing.T) {
 	assert.NotContains(t, cfg.funcs, "lower")
 }
 
+// TestWithDefaultFuncs tests expected behavior.
+func TestWithDefaultFuncs(t *testing.T) {
+	t.Parallel()
+
+	cfg := options{}
+	WithDefaultFuncs()(&cfg)
+
+	assert.True(t, cfg.useDefaultFuncs)
+}
+
 // TestNewBuiltins tests expected behavior.
 func TestNewBuiltins(t *testing.T) {
 	t.Parallel()
@@ -55,25 +65,15 @@ func TestNewBuiltins(t *testing.T) {
 	assert.NotNil(t, registry.files)
 }
 
-// TestFuncMap tests expected behavior.
-func TestFuncMap(t *testing.T) {
+// TestDefaultFuncs tests expected behavior.
+func TestDefaultFuncs(t *testing.T) {
 	t.Parallel()
 
-	funcs := funcMap()
+	funcs := DefaultFuncs()
 
 	assert.NotEmpty(t, funcs)
 	assert.Contains(t, funcs, "json")
 	assert.Contains(t, funcs, "default")
-	assert.Contains(t, funcs, "withPrefix")
-	assert.Contains(t, funcs, "optional")
-	assert.Contains(t, funcs, "when")
-
-	assert.Contains(t, funcs, "coalesce")
-	assert.Contains(t, funcs, "formatTime")
-	assert.Contains(t, funcs, "trim")
-	assert.Contains(t, funcs, "upper")
-	assert.Contains(t, funcs, "lower")
-	assert.Contains(t, funcs, "withSuffix")
 	assert.Contains(t, funcs, "duration")
 }
 
@@ -370,10 +370,10 @@ func TestParse(t *testing.T) {
 		assert.Equal(t, "<no value>", out)
 	})
 
-	t.Run("uses default helper functions", func(t *testing.T) {
+	t.Run("uses explicit default helper functions", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := parse("hello", `{{ .Channel | default "alertmanager" | withPrefix "#" }} {{ when .Resolved "up" "down" }} {{ optional "%s: %s" .Label .Value }}`)
+		parsed, err := parse("hello", `{{ .Channel | default "alertmanager" | withPrefix "#" }} {{ when .Resolved "up" "down" }} {{ optional "%s: %s" .Label .Value }}`, WithDefaultFuncs())
 		require.NoError(t, err)
 
 		out, err := execute(parsed, map[string]any{
@@ -384,6 +384,14 @@ func TestParse(t *testing.T) {
 		})
 		require.NoError(t, err)
 		assert.Equal(t, "#alertmanager up Status: ok", out)
+	})
+
+	t.Run("does not use helper functions by default", func(t *testing.T) {
+		t.Parallel()
+
+		parsed, err := parse("hello", `{{ .Duration | duration }}`)
+		require.Error(t, err)
+		assert.Nil(t, parsed)
 	})
 
 	t.Run("uses custom function", func(t *testing.T) {
@@ -410,10 +418,10 @@ func TestParse(t *testing.T) {
 		assert.Equal(t, "[notifykit]", out)
 	})
 
-	t.Run("uses tmplfuncs helpers by default", func(t *testing.T) {
+	t.Run("uses tmplfuncs helpers when default funcs are enabled", func(t *testing.T) {
 		t.Parallel()
 
-		parsed, err := parse("hello", `{{ .Duration | duration }}`)
+		parsed, err := parse("hello", `{{ .Duration | duration }}`, WithDefaultFuncs())
 		require.NoError(t, err)
 
 		out, err := execute(parsed, map[string]any{"Duration": 90 * time.Second})
@@ -603,6 +611,7 @@ func TestParseOptions(t *testing.T) {
 		cfg, err := parseOptions()
 		require.NoError(t, err)
 		assert.Equal(t, MissingKeyError, cfg.missingKey)
+		assert.False(t, cfg.useDefaultFuncs)
 	})
 
 	t.Run("ignores nil options", func(t *testing.T) {
@@ -611,6 +620,7 @@ func TestParseOptions(t *testing.T) {
 		cfg, err := parseOptions(nil)
 		require.NoError(t, err)
 		assert.Equal(t, MissingKeyError, cfg.missingKey)
+		assert.False(t, cfg.useDefaultFuncs)
 	})
 }
 

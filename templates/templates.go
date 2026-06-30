@@ -39,14 +39,22 @@ type Option func(*options)
 
 // options stores parser configuration.
 type options struct {
-	missingKey MissingKey
-	funcs      template.FuncMap
+	missingKey      MissingKey
+	funcs           template.FuncMap
+	useDefaultFuncs bool
 }
 
 // WithMissingKey configures the text/template missingkey option.
 func WithMissingKey(policy MissingKey) Option {
 	return func(cfg *options) {
 		cfg.missingKey = policy
+	}
+}
+
+// WithDefaultFuncs enables Notifykit's default template helper functions.
+func WithDefaultFuncs() Option {
+	return func(cfg *options) {
+		cfg.useDefaultFuncs = true
 	}
 }
 
@@ -96,11 +104,10 @@ func newBuiltins(files fs.FS) builtinTemplates {
 	return builtinTemplates{files: files}
 }
 
-// funcMap returns the shared default template helper functions.
+// DefaultFuncs returns Notifykit's default template helper functions.
 //
-// Notifykit exposes all helpers provided by github.com/containeroo/tmplfuncs by
-// default. Applications can override or extend helpers with WithFunc or WithFuncs.
-func funcMap() template.FuncMap {
+// The returned map is a fresh copy and can be modified by callers.
+func DefaultFuncs() template.FuncMap {
 	return tmplfuncs.FuncMap()
 }
 
@@ -245,7 +252,10 @@ func parse(name, value string, opts ...Option) (*template.Template, error) {
 		return nil, err
 	}
 
-	funcs := funcMap()
+	funcs := template.FuncMap{}
+	if cfg.useDefaultFuncs {
+		maps.Copy(funcs, DefaultFuncs())
+	}
 	maps.Copy(funcs, cfg.funcs)
 
 	tmpl := template.New(name).
