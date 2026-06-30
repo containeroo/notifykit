@@ -248,7 +248,11 @@ func Parse(name, value string, opts ...Option) (*template.Template, error) {
 	funcs := FuncMap()
 	maps.Copy(funcs, cfg.funcs)
 
-	parsed, err := template.New(name).Option(cfg.templateOption()).Funcs(funcs).Parse(value)
+	tmpl := template.New(name).
+		Option(cfg.templateOption()).
+		Funcs(funcs)
+
+	parsed, err := tmpl.Parse(value)
 	if err != nil {
 		return nil, fmt.Errorf("parse %s: %w", name, err)
 	}
