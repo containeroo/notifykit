@@ -19,7 +19,7 @@ import (
 	"github.com/containeroo/notifykit/templates"
 )
 
-// LogResponse controls how much of a successful webhook response is logged.
+// LogResponse controls how much webhook response information is logged.
 type LogResponse string
 
 const (
@@ -33,6 +33,9 @@ const (
 	LogResponseFull LogResponse = "full"
 
 	// LogResponseNone suppresses successful webhook response logs.
+	//
+	// Error responses are still logged with summary fields, but without response
+	// bodies or headers.
 	LogResponseNone LogResponse = "none"
 )
 
@@ -51,7 +54,10 @@ type clientOptions struct {
 type Target struct {
 	// Name is an optional human-readable target name used in logs.
 	//
-	// When Name is empty, logs and delivery errors fall back to URL.
+	// When Name is empty, logs and delivery errors use a generic target label.
+	//
+	// The raw URL is intentionally not used as a fallback because webhook URLs
+	// commonly contain secrets.
 	Name string
 
 	// URL is the webhook endpoint URL.
@@ -96,10 +102,11 @@ type Target struct {
 	// the template output is not valid JSON.
 	ValidateJSON bool
 
-	// LogResponse controls how much successful response information is logged.
+	// LogResponse controls how much response information is logged.
 	//
 	// New defaults LogResponse to LogResponseSummary when unset. Error responses
-	// are logged with response body details regardless of this setting.
+	// are logged with summary fields by default; response bodies and headers are
+	// only logged when LogResponseBody or LogResponseFull is configured.
 	LogResponse LogResponse
 
 	// ResponseBodyLimit limits how many response-body bytes are read and logged.
@@ -225,7 +232,7 @@ func WithValidateJSON() Option {
 	return func(target *Target) { target.ValidateJSON = true }
 }
 
-// WithLogResponse configures how much successful response information is logged.
+// WithLogResponse configures how much webhook response information is logged.
 func WithLogResponse(mode LogResponse) Option {
 	return func(target *Target) { target.LogResponse = mode }
 }
@@ -344,8 +351,8 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		err := responseError(t.label(), resp.Status, responseBody, truncated)
-		t.Logger.Error("webhook delivery failed", append(t.responseLogFields(resp, responseBody, truncated, duration, LogResponseBody), "error", err)...)
+		err := responseError(t.label(), resp.Status)
+		t.logFailedResponse(resp, responseBody, truncated, duration, err)
 		return resp.Status, resp.StatusCode, responseBody, err
 	}
 
@@ -400,6 +407,20 @@ func (t *Target) logSuccessfulResponse(resp *http.Response, body string, truncat
 	}
 }
 
+// logFailedResponse writes a failed webhook response without body or header details unless explicitly enabled.
+func (t *Target) logFailedResponse(resp *http.Response, body string, truncated bool, duration time.Duration, err error) {
+	mode := t.LogResponse
+	switch mode {
+	case LogResponseBody, LogResponseFull:
+	case LogResponseNone, LogResponseSummary, "":
+		mode = LogResponseSummary
+	default:
+		mode = LogResponseSummary
+	}
+
+	t.Logger.Error("webhook delivery failed", append(t.responseLogFields(resp, body, truncated, duration, mode), "error", err)...)
+}
+
 // responseLogFields returns structured fields for webhook response logging.
 func (t *Target) responseLogFields(resp *http.Response, body string, truncated bool, duration time.Duration, mode LogResponse) []any {
 	fields := []any{
@@ -418,12 +439,12 @@ func (t *Target) responseLogFields(resp *http.Response, body string, truncated b
 	return fields
 }
 
-// label returns the configured target name or URL.
+// label returns the configured target name or a secret-safe fallback.
 func (t *Target) label() string {
 	if t.Name != "" {
 		return t.Name
 	}
-	return t.URL
+	return "webhook"
 }
 
 // NewClient constructs an HTTP client for webhook delivery.
@@ -483,15 +504,9 @@ func readResponseBody(body io.Reader, limit int) (text string, truncated bool, e
 	return strings.TrimSpace(string(data)), truncated, nil
 }
 
-// responseError returns a delivery error including response context.
-func responseError(target, status, body string, truncated bool) error {
-	if body == "" {
-		return fmt.Errorf("webhook %q delivery failed: %s", target, status)
-	}
-	if truncated {
-		return fmt.Errorf("webhook %q delivery failed: %s: %s...", target, status, body)
-	}
-	return fmt.Errorf("webhook %q delivery failed: %s: %s", target, status, body)
+// responseError returns a secret-safe delivery error.
+func responseError(target, status string) error {
+	return fmt.Errorf("webhook %q delivery failed: %s", target, status)
 }
 
 // truncateBody shortens a response body to the configured limit.

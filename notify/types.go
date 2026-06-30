@@ -43,7 +43,7 @@ type Target interface {
 	Type() string
 }
 
-// DeliveryResult captures target response details for logs and errors.
+// DeliveryResult captures target response details returned by delivery targets.
 type DeliveryResult struct {
 	// Status is a target-specific delivery status such as sent or failed.
 	Status string
@@ -51,7 +51,11 @@ type DeliveryResult struct {
 	// StatusCode is the target response status code when one exists.
 	StatusCode int
 
-	// Response is a short target response summary suitable for logs.
+	// Response contains target-specific response details.
+	//
+	// Generic Notifykit loggers do not log this value because target responses
+	// may contain sensitive data such as webhook URLs, tokens, echoed payloads,
+	// or authentication diagnostics.
 	Response string
 }
 

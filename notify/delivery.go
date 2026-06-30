@@ -66,7 +66,6 @@ func (d *deliveryEngine) dispatchReceiver(ctx context.Context, receiver *Receive
 				"attempts", attempts,
 				"status", result.Status,
 				"statusCode", result.StatusCode,
-				"response", result.Response,
 				"error", err,
 			)
 			continue
@@ -80,7 +79,6 @@ func (d *deliveryEngine) dispatchReceiver(ctx context.Context, receiver *Receive
 			"attempts", attempts,
 			"status", result.Status,
 			"statusCode", result.StatusCode,
-			"response", result.Response,
 		)
 	}
 	return errors.Join(errs...)

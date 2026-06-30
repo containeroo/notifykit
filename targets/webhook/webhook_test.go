@@ -1,6 +1,7 @@
 package webhook
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -168,20 +169,22 @@ func TestTargetSendResult(t *testing.T) {
 		assert.Equal(t, "response", result.Response)
 	})
 
-	t.Run("returns response details on http error", func(t *testing.T) {
+	t.Run("returns response details on http error without leaking them through error", func(t *testing.T) {
 		t.Parallel()
 
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "bad", http.StatusBadGateway)
+			http.Error(w, "secret-response-token", http.StatusBadGateway)
 		}))
 		defer server.Close()
 
 		target := validTarget(t)
-		target.URL = server.URL
+		target.URL = server.URL + "?token=secret-url-token"
 		result, err := target.SendResult(context.Background(), payload())
 		require.Error(t, err)
 		assert.Equal(t, http.StatusBadGateway, result.StatusCode)
-		assert.Contains(t, result.Response, "bad")
+		assert.Contains(t, result.Response, "secret-response-token")
+		assert.NotContains(t, err.Error(), "secret-response-token")
+		assert.NotContains(t, err.Error(), "secret-url-token")
 	})
 }
 
@@ -449,6 +452,37 @@ func TestTargetResponseLogFields(t *testing.T) {
 	assert.Contains(t, full, "responseHeaders")
 }
 
+// TestTargetLogFailedResponse tests expected behavior.
+func TestTargetLogFailedResponse(t *testing.T) {
+	t.Parallel()
+
+	resp := &http.Response{Status: "502 Bad Gateway", StatusCode: http.StatusBadGateway, Header: http.Header{"X-Token": []string{"secret-header-token"}}}
+	err := responseError("webhook", resp.Status)
+
+	t.Run("uses summary fields by default", func(t *testing.T) {
+		t.Parallel()
+
+		var logs bytes.Buffer
+		target := &Target{Logger: slog.New(slog.NewTextHandler(&logs, nil))}
+		target.logFailedResponse(resp, "secret-response-token", false, time.Millisecond, err)
+
+		assert.Contains(t, logs.String(), "webhook delivery failed")
+		assert.NotContains(t, logs.String(), "secret-response-token")
+		assert.NotContains(t, logs.String(), "secret-header-token")
+	})
+
+	t.Run("logs body only when explicitly configured", func(t *testing.T) {
+		t.Parallel()
+
+		var logs bytes.Buffer
+		target := &Target{Logger: slog.New(slog.NewTextHandler(&logs, nil)), LogResponse: LogResponseBody}
+		target.logFailedResponse(resp, "secret-response-token", false, time.Millisecond, err)
+
+		assert.Contains(t, logs.String(), "secret-response-token")
+		assert.NotContains(t, logs.String(), "secret-header-token")
+	})
+}
+
 // TestTargetLabel tests expected behavior.
 func TestTargetLabel(t *testing.T) {
 	t.Parallel()
@@ -459,10 +493,10 @@ func TestTargetLabel(t *testing.T) {
 		assert.Equal(t, "ops", (&Target{Name: "ops", URL: "http://example.com"}).label())
 	})
 
-	t.Run("falls back to url", func(t *testing.T) {
+	t.Run("uses secret-safe fallback", func(t *testing.T) {
 		t.Parallel()
 
-		assert.Equal(t, "http://example.com", (&Target{URL: "http://example.com"}).label())
+		assert.Equal(t, "webhook", (&Target{URL: "http://example.com/secret"}).label())
 	})
 }
 
@@ -516,26 +550,8 @@ func TestReadResponseBody(t *testing.T) {
 func TestResponseError(t *testing.T) {
 	t.Parallel()
 
-	t.Run("without body", func(t *testing.T) {
-		t.Parallel()
-
-		err := responseError("ops", "500", "", false)
-		assert.EqualError(t, err, `webhook "ops" delivery failed: 500`)
-	})
-
-	t.Run("with body", func(t *testing.T) {
-		t.Parallel()
-
-		err := responseError("ops", "500", "bad", false)
-		assert.EqualError(t, err, `webhook "ops" delivery failed: 500: bad`)
-	})
-
-	t.Run("with truncated body", func(t *testing.T) {
-		t.Parallel()
-
-		err := responseError("ops", "500", "bad", true)
-		assert.EqualError(t, err, `webhook "ops" delivery failed: 500: bad...`)
-	})
+	err := responseError("ops", "500")
+	assert.EqualError(t, err, `webhook "ops" delivery failed: 500`)
 }
 
 // TestTruncateBody tests expected behavior.

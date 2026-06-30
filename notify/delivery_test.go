@@ -1,8 +1,10 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -104,5 +106,36 @@ func TestDeliveryEngineDispatchReceiver(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, target.calls)
 		assert.Equal(t, "ops", target.payload.Receiver)
+	})
+
+	t.Run("does not log delivery response on success", func(t *testing.T) {
+		t.Parallel()
+
+		var logs bytes.Buffer
+		delivery := &deliveryEngine{logger: slog.New(slog.NewTextHandler(&logs, nil))}
+		target := &testResultTarget{result: DeliveryResult{Status: "sent", StatusCode: 200, Response: "secret-response-token"}}
+		receiver := &Receiver{Name: "ops", Targets: []Target{target}}
+
+		err := delivery.dispatchReceiver(context.Background(), receiver, Payload{Notification: testNotification{id: "n1"}})
+		require.NoError(t, err)
+		assert.Contains(t, logs.String(), "notification target delivered")
+		assert.NotContains(t, logs.String(), "secret-response-token")
+	})
+
+	t.Run("does not log delivery response on failure", func(t *testing.T) {
+		t.Parallel()
+
+		var logs bytes.Buffer
+		delivery := &deliveryEngine{logger: slog.New(slog.NewTextHandler(&logs, nil))}
+		target := &testResultTarget{
+			testTarget: testTarget{err: errors.New("boom")},
+			result:     DeliveryResult{Status: "failed", StatusCode: 500, Response: "secret-response-token"},
+		}
+		receiver := &Receiver{Name: "ops", Targets: []Target{target}}
+
+		err := delivery.dispatchReceiver(context.Background(), receiver, Payload{Notification: testNotification{id: "n1"}})
+		require.Error(t, err)
+		assert.Contains(t, logs.String(), "notification target failed")
+		assert.NotContains(t, logs.String(), "secret-response-token")
 	})
 }
