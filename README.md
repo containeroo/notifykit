@@ -30,14 +30,14 @@ type Alert struct {
 
 func (a Alert) ID() string { return a.IDValue }
 
-func (a Alert) Data(receiver string, vars map[string]any, title string) any {
+func (a Alert) Data(receiver string, customData map[string]any, title string) any {
     return map[string]any{
         "ID":       a.IDValue,
         "Service":  a.Service,
         "Status":   a.Status,
         "Title":    title,
         "Receiver": receiver,
-        "Vars":     vars,
+        "CustomData": customData,
     }
 }
 
@@ -102,7 +102,7 @@ go run ./examples/multiple
 ```go
 receiver := notify.NewReceiver("ops", slackTarget, emailTarget).
     WithName("Operations").
-    WithVars(map[string]any{"channel": "alerts"}).
+    WithCustomData(map[string]any{"channel": "alerts"}).
     WithRetry(notify.RetryConfig{Count: 2, Backoff: time.Second})
 
 err := notify.SendTo(ctx, alert, receiver)
@@ -116,7 +116,7 @@ func NewReceivers(receivers ...*Receiver) Receivers
 func SendTo(ctx context.Context, notification Notification, receivers ...*Receiver) error
 
 func (r *Receiver) WithName(name string) *Receiver
-func (r *Receiver) WithVars(vars map[string]any) *Receiver
+func (r *Receiver) WithCustomData(customData map[string]any) *Receiver
 func (r *Receiver) WithRetry(cfg RetryConfig) *Receiver
 func (r *Receiver) WithTargets(targets ...Target) *Receiver
 ```
@@ -168,7 +168,7 @@ receivers := notify.Receivers{
             Count:   2, // two retries, three total attempts
             Backoff: time.Second,
         },
-        Vars: map[string]any{
+        CustomData: map[string]any{
             "channel": "alerts",
         },
         Targets: []notify.Target{
@@ -259,7 +259,7 @@ Applications implement this interface:
 ```go
 type Notification interface {
     ID() string
-    Data(receiver string, vars map[string]any, subject string) any
+    Data(receiver string, customData map[string]any, subject string) any
 }
 ```
 
@@ -299,7 +299,7 @@ A receiver groups one or more delivery targets and optional receiver-scoped sett
 ```go
 receiver := notify.NewReceiver("ops", slackWebhook, emailTarget).
     WithName("Operations").
-    WithVars(map[string]any{"channel": "alerts"}).
+    WithCustomData(map[string]any{"channel": "alerts"}).
     WithRetry(notify.RetryConfig{Count: 2, Backoff: time.Second})
 ```
 

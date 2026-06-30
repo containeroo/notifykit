@@ -23,10 +23,10 @@ func TestPayloadData(t *testing.T) {
 		payload := Payload{
 			Notification: testNotification{id: "n1"},
 			Receiver:     "ops",
-			Vars:         map[string]any{"team": "platform"},
+			CustomData:   map[string]any{"team": "platform"},
 		}
 		data := payload.Data("hello")
-		assert.Equal(t, map[string]any{"receiver": "ops", "vars": map[string]any{"team": "platform"}, "subject": "hello"}, data)
+		assert.Equal(t, map[string]any{"receiver": "ops", "CustomData": map[string]any{"team": "platform"}, "subject": "hello"}, data)
 	})
 }
 

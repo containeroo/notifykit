@@ -51,7 +51,7 @@ func (d *deliveryEngine) dispatchReceiver(ctx context.Context, receiver *Receive
 
 		targetPayload := payload
 		targetPayload.Receiver = receiver.Name
-		targetPayload.Vars = receiver.Vars
+		targetPayload.CustomData = receiver.CustomData
 
 		result, attempts, err := withRetry(ctx, d.logger, receiver.Retry, func() (DeliveryResult, error) {
 			return target.Send(ctx, targetPayload)

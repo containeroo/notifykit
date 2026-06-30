@@ -22,7 +22,7 @@ type Receivers map[ReceiverID]*Receiver
 // configured receivers.
 type Notification interface {
 	ID() string
-	Data(receiver string, vars map[string]any, subject string) any
+	Data(receiver string, customData map[string]any, subject string) any
 }
 
 // ReceiverRouter optionally routes a notification to receiver IDs.
@@ -72,8 +72,8 @@ type Payload struct {
 	// Receiver is the receiver display name passed to template data.
 	Receiver string
 
-	// Vars contains receiver-scoped template variables.
-	Vars map[string]any
+	// CustomData contains receiver-scoped custom template data.
+	CustomData map[string]any
 }
 
 // Data returns notification template data for this receiver and subject.
@@ -81,7 +81,7 @@ func (p Payload) Data(subject string) any {
 	if p.Notification == nil {
 		return nil
 	}
-	return p.Notification.Data(p.Receiver, p.Vars, subject)
+	return p.Notification.Data(p.Receiver, p.CustomData, subject)
 }
 
 // ID returns the notification ID.
@@ -110,8 +110,8 @@ type Receiver struct {
 	// Targets contains the delivery targets for this receiver.
 	Targets []Target
 
-	// Vars contains receiver-scoped template variables.
-	Vars map[string]any
+	// CustomData contains receiver-scoped custom template data.
+	CustomData map[string]any
 }
 
 // RetryConfig defines retry behavior for a receiver.

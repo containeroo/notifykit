@@ -26,11 +26,11 @@ type testNotification struct{}
 func (testNotification) ID() string { return "n1" }
 
 // Data returns email render data.
-func (testNotification) Data(receiver string, vars map[string]any, subject string) any {
+func (testNotification) Data(receiver string, customData map[string]any, subject string) any {
 	return map[string]any{
-		"Receiver": receiver,
-		"Subject":  subject,
-		"Vars":     vars,
+		"Receiver":   receiver,
+		"Subject":    subject,
+		"CustomData": customData,
 	}
 }
 
@@ -594,7 +594,7 @@ func TestAppendHeaders(t *testing.T) {
 
 // payload supports tests.
 func payload() notify.Payload {
-	return notify.Payload{Notification: testNotification{}, Receiver: "ops", Vars: map[string]any{"team": "platform"}}
+	return notify.Payload{Notification: testNotification{}, Receiver: "ops", CustomData: map[string]any{"team": "platform"}}
 }
 
 // validTarget supports tests.

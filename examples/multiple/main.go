@@ -25,14 +25,14 @@ type Alert struct {
 func (a Alert) ID() string { return a.IDValue }
 
 // Data builds the template context used by the title and webhook body.
-func (a Alert) Data(receiver string, vars map[string]any, title string) any {
+func (a Alert) Data(receiver string, customData map[string]any, title string) any {
 	return map[string]any{
-		"ID":       a.IDValue,
-		"Service":  a.Service,
-		"Status":   a.Status,
-		"Title":    title,
-		"Receiver": receiver,
-		"Vars":     vars,
+		"ID":         a.IDValue,
+		"Service":    a.Service,
+		"Status":     a.Status,
+		"Title":      title,
+		"Receiver":   receiver,
+		"CustomData": customData,
 	}
 }
 
@@ -79,7 +79,7 @@ func main() {
 			webhook.WithLogger(logger),
 			webhook.WithValidateJSON(),
 		),
-	).WithVars(map[string]any{"team": "operations"})
+	).WithCustomData(map[string]any{"team": "operations"})
 
 	dev := notify.NewReceiver(
 		"dev",
@@ -92,7 +92,7 @@ func main() {
 			webhook.WithLogger(logger),
 			webhook.WithValidateJSON(),
 		),
-	).WithVars(map[string]any{"team": "developers"})
+	).WithCustomData(map[string]any{"team": "developers"})
 
 	err = notify.SendTo(ctx, Alert{
 		IDValue: "alert-1",

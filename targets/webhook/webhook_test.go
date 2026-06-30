@@ -26,11 +26,11 @@ type testNotification struct{}
 func (testNotification) ID() string { return "n1" }
 
 // Data returns webhook render data.
-func (testNotification) Data(receiver string, vars map[string]any, title string) any {
+func (testNotification) Data(receiver string, customData map[string]any, title string) any {
 	return map[string]any{
-		"Receiver": receiver,
-		"Title":    title,
-		"Vars":     vars,
+		"Receiver":   receiver,
+		"Title":      title,
+		"CustomData": customData,
 	}
 }
 
@@ -579,7 +579,7 @@ func TestTruncateBody(t *testing.T) {
 
 // payload supports tests.
 func payload() notify.Payload {
-	return notify.Payload{Notification: testNotification{}, Receiver: "ops", Vars: map[string]any{"team": "platform"}}
+	return notify.Payload{Notification: testNotification{}, Receiver: "ops", CustomData: map[string]any{"team": "platform"}}
 }
 
 // validTarget supports tests.

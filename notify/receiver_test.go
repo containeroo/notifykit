@@ -105,17 +105,17 @@ func TestReceiverBuilderMethods(t *testing.T) {
 
 		first := &testTarget{}
 		second := &testTarget{}
-		vars := map[string]any{"team": "platform"}
+		customData := map[string]any{"team": "platform"}
 		retry := RetryConfig{Count: 2, Backoff: time.Second}
 
 		receiver := NewReceiver("ops", first).
 			WithName("Operations").
-			WithVars(vars).
+			WithCustomData(customData).
 			WithRetry(retry).
 			WithTargets(second)
 
 		assert.Equal(t, "Operations", receiver.Name)
-		assert.Equal(t, vars, receiver.Vars)
+		assert.Equal(t, customData, receiver.CustomData)
 		assert.Equal(t, retry, receiver.Retry)
 		assert.Equal(t, []Target{first, second}, receiver.Targets)
 	})
@@ -126,7 +126,7 @@ func TestReceiverBuilderMethods(t *testing.T) {
 		var receiver *Receiver
 
 		assert.Nil(t, receiver.WithName("ops"))
-		assert.Nil(t, receiver.WithVars(map[string]any{}))
+		assert.Nil(t, receiver.WithCustomData(map[string]any{}))
 		assert.Nil(t, receiver.WithRetry(RetryConfig{}))
 		assert.Nil(t, receiver.WithTargets(&testTarget{}))
 	})

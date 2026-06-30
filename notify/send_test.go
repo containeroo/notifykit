@@ -39,7 +39,7 @@ func TestSend(t *testing.T) {
 
 		target := &testTarget{}
 		receivers := Receivers{
-			"ops": {Name: "ops", Vars: map[string]any{"team": "platform"}, Targets: []Target{target}},
+			"ops": {Name: "ops", CustomData: map[string]any{"team": "platform"}, Targets: []Target{target}},
 			"dev": {Name: "dev", Targets: []Target{&testTarget{}}},
 		}
 
@@ -48,7 +48,7 @@ func TestSend(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, target.calls)
 		assert.Equal(t, "ops", target.payload.Receiver)
-		assert.Equal(t, map[string]any{"team": "platform"}, target.payload.Vars)
+		assert.Equal(t, map[string]any{"team": "platform"}, target.payload.CustomData)
 	})
 
 	t.Run("sends to all receivers without names", func(t *testing.T) {

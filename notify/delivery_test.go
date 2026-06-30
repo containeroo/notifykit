@@ -49,13 +49,13 @@ func TestDeliveryEngineDispatch(t *testing.T) {
 
 		target := &testTarget{}
 		n := testNotification{id: "n1"}
-		receiver := &Receiver{Name: "ops", Vars: map[string]any{"team": "platform"}, Targets: []Target{target}}
+		receiver := &Receiver{Name: "ops", CustomData: map[string]any{"team": "platform"}, Targets: []Target{target}}
 
 		err := delivery.dispatch(context.Background(), Payload{Notification: n}, []*Receiver{receiver})
 		require.NoError(t, err)
 		assert.Equal(t, 1, target.calls)
 		assert.Equal(t, "ops", target.payload.Receiver)
-		assert.Equal(t, map[string]any{"team": "platform"}, target.payload.Vars)
+		assert.Equal(t, map[string]any{"team": "platform"}, target.payload.CustomData)
 	})
 
 	t.Run("joins receiver errors", func(t *testing.T) {

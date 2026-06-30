@@ -15,7 +15,7 @@ func testLogger() *slog.Logger {
 type testNotification struct {
 	id        string
 	receivers []ReceiverID
-	dataFn    func(receiver string, vars map[string]any, subject string) any
+	dataFn    func(receiver string, customData map[string]any, subject string) any
 }
 
 // ID returns the configured notification id.
@@ -25,11 +25,11 @@ func (n testNotification) ID() string { return n.id }
 func (n testNotification) ReceiverIDs() []ReceiverID { return n.receivers }
 
 // Data returns configured render data or a default map.
-func (n testNotification) Data(receiver string, vars map[string]any, subject string) any {
+func (n testNotification) Data(receiver string, customData map[string]any, subject string) any {
 	if n.dataFn != nil {
-		return n.dataFn(receiver, vars, subject)
+		return n.dataFn(receiver, customData, subject)
 	}
-	return map[string]any{"receiver": receiver, "vars": vars, "subject": subject}
+	return map[string]any{"receiver": receiver, "CustomData": customData, "subject": subject}
 }
 
 // testTarget records Send calls.

@@ -69,11 +69,11 @@ func (r *Receiver) WithTargets(targets ...Target) *Receiver {
 	return r
 }
 
-// WithVars sets receiver-scoped template variables and returns r.
-func (r *Receiver) WithVars(vars map[string]any) *Receiver {
+// WithCustomData sets receiver-scoped custom template data and returns r.
+func (r *Receiver) WithCustomData(customData map[string]any) *Receiver {
 	if r == nil {
 		return nil
 	}
-	r.Vars = vars
+	r.CustomData = customData
 	return r
 }
