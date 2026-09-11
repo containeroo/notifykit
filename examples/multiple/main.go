@@ -63,7 +63,7 @@ func mockExternalAPI(name, color string, statuses ...int) (url string, stop func
 			status = statuses[min(attempt-1, len(statuses)-1)]
 		}
 
-		fmt.Fprintf(
+		_, _ = fmt.Fprintf(
 			os.Stdout,
 			"%s[%s]%s attempt %d -> %d %s | %s\n",
 			color,
@@ -73,7 +73,7 @@ func mockExternalAPI(name, color string, statuses ...int) (url string, stop func
 			status,
 			http.StatusText(status),
 			strings.TrimSpace(string(body)),
-		) // nolint:errcheck
+		)
 
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(http.StatusText(status)))

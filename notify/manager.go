@@ -14,6 +14,9 @@ import (
 
 var ErrManagerStarted = errors.New("manager already started")
 
+// ErrManagerStopped means the manager no longer accepts notifications.
+var ErrManagerStopped = errors.New("manager stopped")
+
 // Manager owns notification queueing and dispatch infrastructure.
 type Manager struct {
 	store      *store
@@ -24,8 +27,15 @@ type Manager struct {
 	workers int
 	slots   chan struct{}
 
-	mu      sync.Mutex
-	started bool
+	mu          sync.Mutex
+	started     bool
+	stopped     bool
+	finishing   bool
+	stopping    chan struct{}
+	done        chan struct{}
+	runCtx      context.Context
+	cancel      context.CancelFunc
+	workersDone sync.WaitGroup
 }
 
 type ManagerOption func(*managerConfig)
@@ -44,8 +54,8 @@ type Completion struct {
 	Err            error
 }
 
-// WithOnComplete installs a callback invoked once after each queued delivery.
-// It runs synchronously on a worker; it must be concurrency-safe, return promptly,
+// WithOnComplete installs a callback invoked once after delivery or discard.
+// It runs synchronously on a worker or the shutdown cleanup goroutine; it must be concurrency-safe, return promptly,
 // and must not wait for manager shutdown or enqueue into the same manager.
 func WithOnComplete(fn func(Completion)) ManagerOption {
 	return func(c *managerConfig) { c.onComplete = fn }
@@ -121,6 +131,8 @@ func NewManager(receivers Receivers, logger *slog.Logger, opts ...ManagerOption)
 		receivers:  receivers,
 		workers:    cfg.workers,
 		slots:      slots,
+		stopping:   make(chan struct{}),
+		done:       make(chan struct{}),
 	}, nil
 }
 
@@ -145,19 +157,26 @@ func (m *Manager) Enqueue(ctx context.Context, n Notification) (string, error) {
 
 	select {
 	case m.slots <- struct{}{}:
+	case <-m.stopping:
+		return "", ErrManagerStopped
 	case <-ctx.Done():
 		return "", ctx.Err()
+	}
+	// Admission and mailbox closure share the lock. A reserved slot guarantees
+	// that sending below cannot block, even with concurrent producers.
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped || (m.runCtx != nil && m.runCtx.Err() != nil) {
+		<-m.slots
+		return "", ErrManagerStopped
+	}
+	if err := ctx.Err(); err != nil {
+		<-m.slots
+		return "", err
 	}
 	m.store.put(id, n)
-
-	select {
-	case m.mailbox <- id:
-		return id, nil
-	case <-ctx.Done():
-		m.store.delete(id)
-		<-m.slots
-		return "", ctx.Err()
-	}
+	m.mailbox <- id
+	return id, nil
 }
 
 // Receivers returns snapshots sorted by ID. Structs, target slices and top-level
@@ -200,11 +219,19 @@ func (m *Manager) Start(ctx context.Context) error {
 	if m.started {
 		return ErrManagerStarted
 	}
-	m.started = true
 
-	for range m.workers {
-		go m.dispatcher.start(ctx)
+	if m.stopped {
+		return ErrManagerStopped
 	}
+	m.started = true
+	m.finishing = true
+	m.runCtx, m.cancel = context.WithCancel(ctx)
+	context.AfterFunc(m.runCtx, func() { m.stop(false) })
+	m.workersDone.Add(m.workers)
+	for range m.workers {
+		go func() { defer m.workersDone.Done(); m.dispatcher.start(m.runCtx) }()
+	}
+	go m.finish()
 
 	return nil
 }
@@ -212,4 +239,71 @@ func (m *Manager) Start(ctx context.Context) error {
 // nextQueueID returns a time-sortable UUIDv7 queue id.
 func nextQueueID() (string, error) {
 	return uuidv7.New()
+}
+
+// Shutdown stops admission and drains accepted notifications. If ctx expires,
+// active deliveries are canceled and queued notifications are discarded with
+// ErrManagerStopped completion outcomes. Canceling Start's context also aborts
+// delivery. Shutdown before Start discards queued work. Managers cannot restart.
+// Call Wait to observe completion after a timed-out Shutdown.
+func (m *Manager) Shutdown(ctx context.Context) error {
+	if m == nil {
+		return errors.New("manager is nil")
+	}
+	if ctx == nil {
+		return errors.New("context is nil")
+	}
+	m.stop(true)
+	if err := m.Wait(ctx); err != nil {
+		m.stop(false)
+		return err
+	}
+	return nil
+}
+
+// Wait waits for all workers and completion callbacks to finish after shutdown
+// or cancellation. It does not initiate shutdown. Custom targets must honor ctx.
+func (m *Manager) Wait(ctx context.Context) error {
+	if m == nil {
+		return errors.New("manager is nil")
+	}
+	if ctx == nil {
+		return errors.New("context is nil")
+	}
+	select {
+	case <-m.done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+func (m *Manager) stop(drain bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !m.stopped {
+		m.stopped = true
+		close(m.stopping)
+		close(m.mailbox)
+	}
+	if !drain && m.cancel != nil {
+		m.cancel()
+	}
+	if !m.finishing {
+		m.finishing = true
+		go m.finish()
+	}
+}
+func (m *Manager) finish() {
+	m.workersDone.Wait()
+	m.stop(false)
+	// Workers have exited, so any remaining entries were never dispatched.
+	for id := range m.mailbox {
+		n, ok := m.store.get(id)
+		m.store.delete(id)
+		<-m.slots
+		if ok && m.dispatcher.onComplete != nil {
+			m.dispatcher.onComplete(Completion{QueueID: id, NotificationID: n.ID(), Err: ErrManagerStopped})
+		}
+	}
+	close(m.done)
 }

@@ -3,11 +3,15 @@ package email
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"net"
+	"net/mail"
 	"net/smtp"
+	"net/textproto"
 	"sort"
 	"strconv"
 	"strings"
@@ -87,6 +91,9 @@ type Target struct {
 	//
 	// New defaults DialTimeout to 10 seconds when unset.
 	DialTimeout time.Duration
+	// Timeout bounds the complete SMTP attempt, including TLS and message transfer.
+	// Nonpositive values default to 30 seconds. An earlier caller deadline wins.
+	Timeout time.Duration
 
 	// Template renders the HTML email body.
 	Template templates.Renderer
@@ -147,7 +154,10 @@ func applyDefaults(target *Target) {
 			target.Port = 587
 		}
 	}
-	if target.DialTimeout == 0 {
+	if target.Timeout <= 0 {
+		target.Timeout = 30 * time.Second
+	}
+	if target.DialTimeout <= 0 {
 		target.DialTimeout = 10 * time.Second
 	}
 }
@@ -226,6 +236,9 @@ func WithDialTimeout(timeout time.Duration) Option {
 	return func(target *Target) { target.DialTimeout = timeout }
 }
 
+// WithTimeout bounds the complete SMTP attempt (default 30 seconds).
+func WithTimeout(timeout time.Duration) Option { return func(t *Target) { t.Timeout = timeout } }
+
 // WithTemplate configures the HTML email body template.
 func WithTemplate(tmpl templates.Renderer) Option {
 	return func(target *Target) { target.Template = tmpl }
@@ -247,10 +260,10 @@ func (t *Target) Send(ctx context.Context, payload notify.Payload) (notify.Deliv
 // SendResult renders and sends an email notification with delivery details.
 func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify.DeliveryResult, error) {
 	if t == nil {
-		return notify.DeliveryResult{}, errors.New("email target is nil")
+		return notify.DeliveryResult{}, notify.Permanent(errors.New("email target is nil"))
 	}
 	if ctx == nil {
-		return notify.DeliveryResult{}, errors.New("context is nil")
+		return notify.DeliveryResult{}, notify.Permanent(errors.New("context is nil"))
 	}
 	if err := ctx.Err(); err != nil {
 		return notify.DeliveryResult{}, err
@@ -264,8 +277,10 @@ func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify
 	if err == nil {
 		err = validateSMTPConfig(target)
 	}
-	if err == nil {
-		err = sendSMTP(ctx, target, message.Subject, message.Body)
+	if err != nil {
+		err = notify.Permanent(err)
+	} else {
+		err = classifySMTPError(sendSMTP(ctx, target, message.Subject, message.Body))
 	}
 
 	status := "sent"
@@ -309,6 +324,9 @@ func (t *Target) Render(payload notify.Payload) (Message, error) {
 	if err != nil {
 		return Message{}, fmt.Errorf("render email subject: %w", err)
 	}
+	if err := validateHeaderValue("Subject", subject); err != nil {
+		return Message{}, err
+	}
 	body, err := t.Template.Render(payload.Data(subject))
 	if err != nil {
 		return Message{}, fmt.Errorf("render email template: %w", err)
@@ -323,7 +341,17 @@ type Message struct {
 }
 
 // sendSMTP sends a validated rendered email through the configured SMTP server.
-func sendSMTP(ctx context.Context, target Target, subject, body string) error {
+func sendSMTP(ctx context.Context, target Target, subject, body string) (resultErr error) {
+	applyDefaults(&target)
+	ctx, cancel := context.WithTimeout(ctx, target.Timeout)
+	defer cancel()
+	defer func() {
+		// A successful DATA acknowledgement remains successful even if the
+		// context expires while the connection is being closed.
+		if resultErr != nil && ctx.Err() != nil {
+			resultErr = ctx.Err()
+		}
+	}()
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
 	msg := buildEmail(target, subject, body)
 
@@ -333,6 +361,11 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) error {
 		return err
 	}
 	defer conn.Close() // nolint:errcheck
+	if deadline, ok := ctx.Deadline(); ok {
+		if err := conn.SetDeadline(deadline); err != nil {
+			return err
+		}
+	}
 	if target.TLSMode == TLSImplicit {
 		secured := tls.Client(conn, smtpTLSConfig(target))
 		if err := secured.HandshakeContext(ctx); err != nil {
@@ -353,9 +386,12 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	if err := client.Hello("localhost"); err != nil {
+		return err
+	}
 	if target.TLSMode != TLSPlaintext && target.TLSMode != TLSImplicit {
 		if ok, _ := client.Extension("STARTTLS"); !ok {
-			return errors.New("SMTP server does not support required STARTTLS")
+			return notify.Permanent(errors.New("SMTP server does not support required STARTTLS"))
 		}
 		if err := client.StartTLS(smtpTLSConfig(target)); err != nil {
 			return err
@@ -403,11 +439,22 @@ func validateSMTPConfig(target Target) error {
 	if target.Port <= 0 {
 		return errors.New("email port must be greater than zero")
 	}
+	if target.Port > 65535 {
+		return errors.New("email port must not exceed 65535")
+	}
 	if strings.TrimSpace(target.From) == "" {
 		return errors.New("email from address is required")
 	}
 	if len(envelopeRecipients(target.To, target.CC, target.BCC)) == 0 {
 		return errors.New("email recipient is required")
+	}
+	if err := validateAddress(target.From); err != nil {
+		return fmt.Errorf("email from: %w", err)
+	}
+	for _, recipient := range envelopeRecipients(target.To, target.CC, target.BCC) {
+		if err := validateAddress(recipient); err != nil {
+			return fmt.Errorf("email recipient: %w", err)
+		}
 	}
 	if err := validateHeaders(target.Headers); err != nil {
 		return err
@@ -555,4 +602,44 @@ func appendHeaders(lines []string, headers map[string]string) []string {
 		lines = append(lines, name+": "+headers[name])
 	}
 	return lines
+}
+
+// validateAddress requires a single bare mailbox, matching the envelope API.
+func validateAddress(value string) error {
+	if header.ContainsNewline(value) {
+		return errors.New("address must not contain newline characters")
+	}
+	parsed, err := mail.ParseAddress(value)
+	if err != nil || parsed.Address != value {
+		return errors.New("address must be a single bare mailbox")
+	}
+	return nil
+}
+
+// classifySMTPError keeps SMTP reply codes separate from HTTP status codes.
+// Temporary SMTP replies are transport failures; permanent replies cannot retry.
+func classifySMTPError(err error) error {
+	if err == nil || notify.IsPermanent(err) {
+		return err
+	}
+	var reply *textproto.Error
+	if errors.As(err, &reply) {
+		if reply.Code >= 400 && reply.Code < 500 {
+			return notify.Transport(err)
+		}
+		return notify.Permanent(err)
+	}
+	var verification *tls.CertificateVerificationError
+	var unknownAuthority x509.UnknownAuthorityError
+	var hostname x509.HostnameError
+	var invalidCertificate x509.CertificateInvalidError
+	if errors.As(err, &verification) || errors.As(err, &unknownAuthority) || errors.As(err, &hostname) || errors.As(err, &invalidCertificate) {
+		return notify.Permanent(err)
+	}
+	var network net.Error
+	if errors.As(err, &network) || errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+		return notify.Transport(err)
+	}
+	// Local protocol/authentication failures are not transient by default.
+	return notify.Permanent(err)
 }

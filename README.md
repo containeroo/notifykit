@@ -642,7 +642,45 @@ manager, err := notify.NewManager(receivers, logger,
 )
 ```
 
-Completion callbacks run on workers and must be concurrency-safe and return
-promptly. Do not enqueue into the same manager or wait for its shutdown from a
+Completion callbacks run on workers (or the cleanup goroutine for discarded work)
+and must be concurrency-safe and return promptly. Do not enqueue into the same manager or wait for its shutdown from a
 callback. Completion includes delivery failures and unresolved routing. The queue
 is in-memory: callbacks do not make it durable across process crashes.
+
+## Manager shutdown
+
+Use `manager.Shutdown(ctx)` to stop accepting work and wait for accepted
+notifications to finish. Keep the context passed to `Start` alive while draining.
+If the shutdown deadline expires, active deliveries are canceled and remaining
+queued work is discarded. Canceling the `Start` context also aborts delivery.
+
+`manager.Wait(ctx)` waits for workers and completion callbacks to finish without
+initiating shutdown. Use it after an aborted or timed-out shutdown if you need to
+observe cleanup. Undispatched discarded notifications receive completion outcomes
+with `notify.ErrManagerStopped`. Notifications already in delivery report their
+delivery result or cancellation error. Enqueue after shutdown returns
+`notify.ErrManagerStopped`; a manager cannot restart. Shutdown before Start
+releases queued notifications as discarded work.
+
+## SMTP validation, retries, and timeouts
+
+Rendered subjects reject CR and LF. Sender and recipient values must each be a
+single bare mailbox such as `ops@example.com`; display-name forms and comma-separated
+lists are rejected. Pass multiple recipients as separate `WithTo`/`WithCC`/`WithBCC`
+arguments.
+
+Email rendering and configuration errors are permanent. SMTP network failures,
+timeouts, and temporary 4xx replies are retryable with `DefaultRetryPolicy`;
+permanent 5xx replies and certificate verification failures are not. SMTP reply
+codes are kept out of the HTTP-style `DeliveryResult.StatusCode`. Use `errors.As`
+on the error for `*textproto.Error` when your application needs the SMTP code.
+
+`email.WithTimeout(30*time.Second)` bounds each complete SMTP attempt, including
+the greeting, TLS handshake, authentication, and message transfer. Nonpositive
+values use the 30-second default. `WithDialTimeout` separately limits connection
+establishment; the earlier caller deadline always wins. Retries have separate
+attempt timeouts, so use a caller deadline to bound the entire operation.
+
+Webhook URL and transport errors expose safe error messages while preserving the
+original causes for `errors.Is` and `errors.As`. Original errors retrieved through
+unwrapping may contain secret URLs and should not be logged directly.

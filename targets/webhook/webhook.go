@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -266,13 +267,13 @@ func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify
 
 	body, err := target.Render(payload)
 	if err != nil {
-		return notify.DeliveryResult{}, notify.Permanent(err)
+		return notify.DeliveryResult{}, notify.Permanent(safeWebhookError(err))
 	}
 	if err := validateHeaders(target.Headers); err != nil {
-		return notify.DeliveryResult{}, notify.Permanent(err)
+		return notify.DeliveryResult{}, notify.Permanent(safeWebhookError(err))
 	}
 	if err := validateEndpoint(target.Method, target.URL); err != nil {
-		return notify.DeliveryResult{}, notify.Permanent(err)
+		return notify.DeliveryResult{}, notify.Permanent(safeWebhookError(err))
 	}
 
 	status, statusCode, responseBody, retryAfter, err := target.post(ctx, body)
@@ -338,7 +339,7 @@ func (t *Target) Render(payload notify.Payload) ([]byte, error) {
 func (t *Target) post(ctx context.Context, body []byte) (status string, statusCode int, response string, retryAfter time.Duration, err error) {
 	req, err := http.NewRequestWithContext(ctx, t.Method, t.URL, bytes.NewReader(body))
 	if err != nil {
-		return "", 0, "", 0, notify.Permanent(err)
+		return "", 0, "", 0, notify.Permanent(safeWebhookError(err))
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	for name, value := range t.Headers {
@@ -349,16 +350,29 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 	resp, err := t.Client.Do(req)
 	duration := time.Since(start)
 	if err != nil {
-		t.Logger.Error("webhook request failed", "duration", duration.Round(time.Millisecond).String(), "error", err)
-		return "", 0, "", 0, notify.Transport(err)
+		t.Logger.Error(
+			"webhook request failed",
+			"duration", duration.Round(time.Millisecond).String(),
+			"error", safeWebhookError(err),
+		)
+		return "", 0, "", 0, notify.Transport(safeWebhookError(err))
 	}
 	defer resp.Body.Close() // nolint:errcheck
 
 	retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 	responseBody, truncated, err := readResponseBody(resp.Body, t.ResponseBodyLimit)
 	if err != nil {
-		t.Logger.Error("webhook response read failed", "status", resp.Status, "statusCode", resp.StatusCode, "duration", duration.Round(time.Millisecond).String(), "error", err)
-		return resp.Status, resp.StatusCode, "", retryAfter, notify.Transport(err)
+		t.Logger.Error(
+			"webhook response read failed",
+			"status", resp.Status,
+			"statusCode", resp.StatusCode,
+			"duration", duration.Round(time.Millisecond).String(),
+			"error", redactedError{
+				cause:   err,
+				message: "webhook response read failed",
+			},
+		)
+		return resp.Status, resp.StatusCode, "", retryAfter, notify.Transport(redactedError{cause: err, message: "webhook response read failed"})
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -375,7 +389,7 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 func validateEndpoint(method, endpoint string) error {
 	request, err := http.NewRequest(method, endpoint, http.NoBody)
 	if err != nil {
-		return err
+		return safeWebhookError(err)
 	}
 	return validateRequestURL(request)
 }
@@ -574,4 +588,27 @@ func truncateBody(body string, limit int) string {
 		return body
 	}
 	return body[:limit] + "..."
+}
+
+// redactedError preserves error identity without formatting secret-bearing causes.
+type redactedError struct {
+	cause   error
+	message string
+}
+
+func (e redactedError) Error() string { return e.message }
+func (e redactedError) Unwrap() error { return e.cause }
+func safeWebhookError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var already redactedError
+	if errors.As(err, &already) {
+		return err
+	}
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return redactedError{cause: err, message: "webhook URL or request failed"}
+	}
+	return err
 }
