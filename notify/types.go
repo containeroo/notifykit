@@ -15,6 +15,12 @@ type ReceiverID string
 // Receivers maps receiver IDs to receiver configuration.
 type Receivers map[ReceiverID]*Receiver
 
+// RetryPolicy decides whether a failed delivery should be retried.
+//
+// result contains target-specific delivery details such as an HTTP status code.
+// err is the error returned by the target.
+type RetryPolicy func(result DeliveryResult, err error) bool
+
 // Notification describes one notification and its template data.
 //
 // A notification may optionally implement ReceiverRouter to select specific
@@ -57,12 +63,6 @@ type DeliveryResult struct {
 	// may contain sensitive data such as webhook URLs, tokens, echoed payloads,
 	// or authentication diagnostics.
 	Response string
-
-	// RetryAfter is the minimum target-requested delay before another attempt.
-	//
-	// Zero means that the target did not request a delay. The retry engine waits
-	// for the longer of RetryAfter and the configured backoff.
-	RetryAfter time.Duration
 }
 
 // Notifier enqueues notifications for delivery.
@@ -138,8 +138,8 @@ type RetryConfig struct {
 	// If MaxBackoff is zero or negative, retry waits are not capped.
 	MaxBackoff time.Duration
 
-	// Jitter randomizes each retry wait between zero and the calculated backoff.
+	// Policy decides whether a failed target delivery should be retried.
 	//
-	// This reduces synchronized retry spikes when many notifications fail at once.
-	Jitter bool
+	// A nil policy uses DefaultRetryPolicy.
+	Policy RetryPolicy
 }

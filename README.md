@@ -123,12 +123,6 @@ func (r *Receiver) WithTargets(targets ...Target) *Receiver
 
 `SendTo` is a small wrapper around `Send`: it builds a `Receivers` map from the provided receivers, uses a discard logger for Notifykit internals, resolves routing, and returns after delivery completes.
 
-Retry attempts stop immediately when a target returns a permanent error. Built-in webhook targets classify rendering and request-configuration failures plus non-transient HTTP responses as permanent. HTTP `408`, `429`, and `5xx` responses remain retryable. Unclassified target errors remain retryable for backward compatibility. Custom targets can mark a failure as permanent with `notify.Permanent(err)`.
-
-Set `RetryConfig.Jitter` to randomize each retry delay between zero and the exponential backoff. Full jitter is useful when many receivers may fail at the same time because it avoids synchronized retry bursts. `MaxBackoff` is applied before jitter.
-
-Webhook targets also honor HTTP `Retry-After`. Delay-seconds and HTTP-date values are parsed into `DeliveryResult.RetryAfter`; before the next attempt Notifykit waits for the longer of the target-requested delay and the locally calculated backoff. This prevents retries from running earlier than a rate-limited or temporarily unavailable endpoint requested.
-
 ## Target options
 
 Webhook and email targets use functional options for simple construction.
@@ -171,10 +165,8 @@ receivers := notify.Receivers{
     "ops": {
         Name: "Operations",
         Retry: notify.RetryConfig{
-            Count:      2, // two retries, three total attempts
-            Backoff:    time.Second,
-            MaxBackoff: 30 * time.Second,
-            Jitter:     true,
+            Count:   2, // two retries, three total attempts
+            Backoff: time.Second,
         },
         CustomData: map[string]any{
             "channel": "alerts",
@@ -188,6 +180,28 @@ receivers := notify.Receivers{
 
 err := notify.Send(ctx, alert, receivers, logger)
 ```
+
+### Retry policies
+
+A receiver with retries enabled uses `notify.DefaultRetryPolicy` when `RetryConfig.Policy` is nil. The default is intentionally conservative: it retries timeouts, network transport errors, status 408 and 429, and status codes from 500 through 599. Other failures are returned immediately.
+
+Retry policies are small composable functions. Override the default when a receiver needs different semantics:
+
+```go
+receiver.WithRetry(notify.RetryConfig{
+    Count:      4,
+    Backoff:    time.Second,
+    MaxBackoff: 30 * time.Second,
+    Policy: notify.AnyRetryPolicy(
+        notify.RetryOnStatusCode(409, 425, 429),
+        notify.RetryOnServerError,
+        notify.RetryOnTimeout,
+        notify.RetryOnNetworkError,
+    ),
+})
+```
+
+`RetryOnError` is available for targets that want the original retry-every-error behavior. Targets can wrap configuration or rendering failures with `notify.Permanent(err)` so the built-in policies never retry them. Custom policies remain free to make their own decision.
 
 Notifykit normalizes receiver configuration when receivers enter `Send`, `SendTo`, `NewReceivers`, or `NewManager`:
 

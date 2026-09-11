@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io"
 	"log/slog"
-	"math/rand/v2"
 	"time"
 )
 
@@ -27,6 +26,10 @@ func withRetry(
 	}
 
 	maxAttempts := max(cfg.Count+1, 1)
+	policy := cfg.Policy
+	if policy == nil {
+		policy = DefaultRetryPolicy
+	}
 	var (
 		lastResult DeliveryResult
 		lastErr    error
@@ -35,7 +38,7 @@ func withRetry(
 
 	for attempt := range maxAttempts {
 		if attempt > 0 {
-			wait := retryDelay(cfg, attempt, lastResult.RetryAfter)
+			wait := retryBackoff(cfg, attempt)
 			if wait > 0 {
 				logger.Debug(
 					"notification target retry",
@@ -60,17 +63,17 @@ func withRetry(
 		result, err := fn()
 		executed++
 		lastResult = result
-		if err != nil {
-			lastErr = err
-			if ctx.Err() != nil {
-				return lastResult, executed, ctx.Err()
-			}
-			if !IsRetryable(err) {
-				return lastResult, executed, lastErr
-			}
-			continue
+		if err == nil {
+			return result, executed, nil
 		}
-		return result, executed, nil
+
+		lastErr = err
+		if ctx.Err() != nil {
+			return lastResult, executed, ctx.Err()
+		}
+		if executed >= maxAttempts || !policy(result, err) {
+			return lastResult, executed, lastErr
+		}
 	}
 
 	return lastResult, executed, lastErr
@@ -89,15 +92,6 @@ func waitForRetry(ctx context.Context, duration time.Duration) error {
 	}
 }
 
-// retryDelay returns the wait before a retry, honoring target guidance.
-func retryDelay(cfg RetryConfig, retry int, retryAfter time.Duration) time.Duration {
-	wait := retryBackoff(cfg, retry)
-	if retryAfter > wait {
-		return retryAfter
-	}
-	return wait
-}
-
 // retryBackoff returns the wait duration before retry attempt.
 //
 // retry is one-based: retry 1 is the first retry after the initial attempt.
@@ -110,26 +104,14 @@ func retryBackoff(cfg RetryConfig, retry int) time.Duration {
 	for range retry - 1 {
 		wait = doubleDuration(wait)
 		if cfg.MaxBackoff > 0 && wait >= cfg.MaxBackoff {
-			wait = cfg.MaxBackoff
-			break
+			return cfg.MaxBackoff
 		}
 	}
 
 	if cfg.MaxBackoff > 0 && wait > cfg.MaxBackoff {
-		wait = cfg.MaxBackoff
-	}
-	if cfg.Jitter {
-		wait = jitterBackoff(wait)
+		return cfg.MaxBackoff
 	}
 	return wait
-}
-
-// jitterBackoff applies full jitter to a calculated retry wait.
-func jitterBackoff(wait time.Duration) time.Duration {
-	if wait <= 0 {
-		return 0
-	}
-	return time.Duration(rand.Int64N(int64(wait)))
 }
 
 // doubleDuration doubles duration and saturates at the largest duration value.
@@ -140,46 +122,4 @@ func doubleDuration(duration time.Duration) time.Duration {
 		return maxDuration
 	}
 	return duration * 2
-}
-
-// permanentError marks a delivery failure that should not be retried.
-type permanentError struct {
-	err error
-}
-
-// Error returns the underlying delivery error text.
-func (e permanentError) Error() string { return e.err.Error() }
-
-// Unwrap exposes the underlying delivery error.
-func (e permanentError) Unwrap() error { return e.err }
-
-// Retryable reports that this failure is permanent.
-func (permanentError) Retryable() bool { return false }
-
-// Permanent marks err as a non-retryable delivery failure.
-//
-// Targets should use Permanent for configuration, rendering, validation, and
-// other failures that another delivery attempt cannot fix. Nil remains nil.
-func Permanent(err error) error {
-	if err == nil || !IsRetryable(err) {
-		return err
-	}
-	return permanentError{err: err}
-}
-
-// IsRetryable reports whether a delivery error should be retried.
-//
-// Unclassified errors are retryable for backward compatibility. Targets may
-// return errors implementing Retryable() bool or wrap permanent failures with
-// Permanent.
-func IsRetryable(err error) bool {
-	if err == nil {
-		return false
-	}
-
-	var classified interface{ Retryable() bool }
-	if errors.As(err, &classified) {
-		return classified.Retryable()
-	}
-	return true
 }

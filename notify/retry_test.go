@@ -3,7 +3,6 @@ package notify
 import (
 	"context"
 	"errors"
-	"fmt"
 	"testing"
 	"time"
 
@@ -30,13 +29,65 @@ func TestWithRetry(t *testing.T) {
 		t.Parallel()
 
 		calls := 0
-		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 2}, func() (DeliveryResult, error) {
+		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 2, Policy: RetryOnError}, func() (DeliveryResult, error) {
 			calls++
 			if calls < 2 {
 				return DeliveryResult{}, errors.New("not yet")
 			}
 			return DeliveryResult{}, nil
 		})
+		require.NoError(t, err)
+		assert.Equal(t, 2, attempts)
+		assert.Equal(t, 2, calls)
+	})
+
+	t.Run("uses default retry policy", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 2}, func() (DeliveryResult, error) {
+			calls++
+			if calls == 1 {
+				return DeliveryResult{StatusCode: 503}, errors.New("unavailable")
+			}
+			return DeliveryResult{StatusCode: 200}, nil
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, 2, attempts)
+		assert.Equal(t, 2, calls)
+	})
+
+	t.Run("default policy stops on generic error", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+		boom := errors.New("boom")
+		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 2}, func() (DeliveryResult, error) {
+			calls++
+			return DeliveryResult{}, boom
+		})
+
+		require.ErrorIs(t, err, boom)
+		assert.Equal(t, 1, attempts)
+		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("uses custom retry policy", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{
+			Count:  2,
+			Policy: RetryOnStatusCode(409),
+		}, func() (DeliveryResult, error) {
+			calls++
+			if calls == 1 {
+				return DeliveryResult{StatusCode: 409}, errors.New("conflict")
+			}
+			return DeliveryResult{StatusCode: 200}, nil
+		})
+
 		require.NoError(t, err)
 		assert.Equal(t, 2, attempts)
 		assert.Equal(t, 2, calls)
@@ -68,7 +119,7 @@ func TestWithRetryInternal(t *testing.T) {
 
 		boom := errors.New("boom")
 		calls := 0
-		_, attempts, err := withRetry(context.Background(), nil, RetryConfig{Count: 2}, func() (DeliveryResult, error) {
+		_, attempts, err := withRetry(context.Background(), nil, RetryConfig{Count: 2, Policy: RetryOnError}, func() (DeliveryResult, error) {
 			calls++
 			return DeliveryResult{}, boom
 		})
@@ -77,27 +128,12 @@ func TestWithRetryInternal(t *testing.T) {
 		assert.Equal(t, 3, calls)
 	})
 
-	t.Run("stops on permanent error", func(t *testing.T) {
-		t.Parallel()
-
-		boom := errors.New("boom")
-		calls := 0
-		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 3}, func() (DeliveryResult, error) {
-			calls++
-			return DeliveryResult{}, Permanent(boom)
-		})
-
-		require.ErrorIs(t, err, boom)
-		assert.Equal(t, 1, attempts)
-		assert.Equal(t, 1, calls)
-	})
-
 	t.Run("honors canceled context during backoff", func(t *testing.T) {
 		t.Parallel()
 
 		ctx, cancel := context.WithCancel(context.Background())
 		calls := 0
-		_, attempts, err := withRetry(ctx, testLogger(), RetryConfig{Count: 1, Backoff: time.Hour}, func() (DeliveryResult, error) {
+		_, attempts, err := withRetry(ctx, testLogger(), RetryConfig{Count: 1, Backoff: time.Hour, Policy: RetryOnError}, func() (DeliveryResult, error) {
 			calls++
 			cancel()
 			return DeliveryResult{}, errors.New("boom")
@@ -105,90 +141,6 @@ func TestWithRetryInternal(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Equal(t, 1, attempts)
 		assert.Equal(t, 1, calls)
-	})
-}
-
-// TestPermanent tests expected behavior.
-func TestPermanent(t *testing.T) {
-	t.Parallel()
-
-	t.Run("preserves nil", func(t *testing.T) {
-		t.Parallel()
-
-		assert.NoError(t, Permanent(nil))
-	})
-
-	t.Run("preserves underlying error", func(t *testing.T) {
-		t.Parallel()
-
-		boom := errors.New("boom")
-		err := Permanent(boom)
-
-		require.ErrorIs(t, err, boom)
-		assert.False(t, IsRetryable(err))
-	})
-
-	t.Run("does not wrap permanent error twice", func(t *testing.T) {
-		t.Parallel()
-
-		first := Permanent(errors.New("boom"))
-		second := Permanent(first)
-
-		assert.Equal(t, first, second)
-	})
-}
-
-// TestIsRetryable tests expected behavior.
-func TestIsRetryable(t *testing.T) {
-	t.Parallel()
-
-	t.Run("returns false for nil", func(t *testing.T) {
-		t.Parallel()
-
-		assert.False(t, IsRetryable(nil))
-	})
-
-	t.Run("defaults unclassified errors to retryable", func(t *testing.T) {
-		t.Parallel()
-
-		assert.True(t, IsRetryable(errors.New("temporary")))
-	})
-
-	t.Run("finds permanent classification through wrapping", func(t *testing.T) {
-		t.Parallel()
-
-		err := fmt.Errorf("delivery: %w", Permanent(errors.New("invalid config")))
-
-		assert.False(t, IsRetryable(err))
-	})
-}
-
-// TestRetryDelay tests expected behavior.
-func TestRetryDelay(t *testing.T) {
-	t.Parallel()
-
-	t.Run("uses configured backoff without target delay", func(t *testing.T) {
-		t.Parallel()
-
-		wait := retryDelay(RetryConfig{Backoff: time.Second}, 2, 0)
-
-		assert.Equal(t, 2*time.Second, wait)
-	})
-
-	t.Run("uses longer target delay", func(t *testing.T) {
-		t.Parallel()
-
-		wait := retryDelay(RetryConfig{Backoff: time.Second}, 2, 5*time.Second)
-
-		assert.Equal(t, 5*time.Second, wait)
-	})
-
-	t.Run("keeps longer configured backoff", func(t *testing.T) {
-		t.Parallel()
-
-		wait := retryDelay(RetryConfig{Backoff: 5 * time.Second}, 1, time.Second)
-
-		assert.Equal(t, 5*time.Second, wait)
 	})
 }
 
@@ -225,43 +177,6 @@ func TestRetryBackoff(t *testing.T) {
 		assert.Equal(t, 2*time.Second, retryBackoff(cfg, 2))
 		assert.Equal(t, 3*time.Second, retryBackoff(cfg, 3))
 		assert.Equal(t, 3*time.Second, retryBackoff(cfg, 4))
-	})
-
-	t.Run("applies jitter after max backoff", func(t *testing.T) {
-		t.Parallel()
-
-		cfg := RetryConfig{
-			Backoff:    time.Second,
-			MaxBackoff: 3 * time.Second,
-			Jitter:     true,
-		}
-
-		for range 100 {
-			wait := retryBackoff(cfg, 4)
-			assert.GreaterOrEqual(t, wait, time.Duration(0))
-			assert.Less(t, wait, 3*time.Second)
-		}
-	})
-}
-
-// TestJitterBackoff tests expected behavior.
-func TestJitterBackoff(t *testing.T) {
-	t.Parallel()
-
-	t.Run("returns zero for non-positive wait", func(t *testing.T) {
-		t.Parallel()
-
-		assert.Equal(t, time.Duration(0), jitterBackoff(0))
-	})
-
-	t.Run("stays below calculated wait", func(t *testing.T) {
-		t.Parallel()
-
-		for range 100 {
-			wait := jitterBackoff(time.Second)
-			assert.GreaterOrEqual(t, wait, time.Duration(0))
-			assert.Less(t, wait, time.Second)
-		}
 	})
 }
 
