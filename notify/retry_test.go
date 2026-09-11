@@ -178,6 +178,48 @@ func TestRetryBackoff(t *testing.T) {
 		assert.Equal(t, 3*time.Second, retryBackoff(cfg, 3))
 		assert.Equal(t, 3*time.Second, retryBackoff(cfg, 4))
 	})
+
+	t.Run("applies full jitter", func(t *testing.T) {
+		t.Parallel()
+
+		wait := retryBackoff(RetryConfig{Backoff: time.Second, Jitter: true}, 3)
+
+		assert.GreaterOrEqual(t, wait, time.Duration(0))
+		assert.Less(t, wait, 4*time.Second)
+	})
+
+	t.Run("jitters capped backoff", func(t *testing.T) {
+		t.Parallel()
+
+		wait := retryBackoff(RetryConfig{
+			Backoff:    time.Second,
+			MaxBackoff: 3 * time.Second,
+			Jitter:     true,
+		}, 4)
+
+		assert.GreaterOrEqual(t, wait, time.Duration(0))
+		assert.Less(t, wait, 3*time.Second)
+	})
+}
+
+// TestJitterBackoff tests expected behavior.
+func TestJitterBackoff(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns zero for zero duration", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, time.Duration(0), jitterBackoff(0))
+	})
+
+	t.Run("returns delay below upper bound", func(t *testing.T) {
+		t.Parallel()
+
+		wait := jitterBackoff(time.Second)
+
+		assert.GreaterOrEqual(t, wait, time.Duration(0))
+		assert.Less(t, wait, time.Second)
+	})
 }
 
 // TestDoubleDuration tests expected behavior.

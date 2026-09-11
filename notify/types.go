@@ -138,6 +138,11 @@ type RetryConfig struct {
 	// If MaxBackoff is zero or negative, retry waits are not capped.
 	MaxBackoff time.Duration
 
+	// Jitter randomizes each local backoff between zero and its calculated delay.
+	//
+	// This reduces synchronized retries when many receivers fail at once.
+	Jitter bool
+
 	// Policy decides whether a failed target delivery should be retried.
 	//
 	// A nil policy uses DefaultRetryPolicy.

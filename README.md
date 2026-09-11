@@ -192,6 +192,7 @@ receiver.WithRetry(notify.RetryConfig{
     Count:      4,
     Backoff:    time.Second,
     MaxBackoff: 30 * time.Second,
+    Jitter:     true,
     Policy: notify.AnyRetryPolicy(
         notify.RetryOnStatusCode(409, 425, 429),
         notify.RetryOnServerError,
@@ -200,6 +201,8 @@ receiver.WithRetry(notify.RetryConfig{
     ),
 })
 ```
+
+Set `Jitter` to use full jitter after exponential backoff and `MaxBackoff` are applied, reducing synchronized retry bursts.
 
 `RetryOnError` is available for targets that want the original retry-every-error behavior. Targets can wrap configuration or rendering failures with `notify.Permanent(err)` so the built-in policies never retry them. Custom policies remain free to make their own decision.
 
