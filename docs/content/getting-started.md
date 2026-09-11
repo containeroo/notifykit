@@ -1,25 +1,16 @@
-# Notifykit
+# Getting started
 
-A small Go library for templated webhook and email notifications.
-Your application owns its events and configuration; Notifykit handles delivery.
-
-## Features
-
-- Synchronous delivery or a bounded queue with multiple workers.
-- Receiver routing and per-receiver template data.
-- Opt-in retries with backoff, jitter, and `Retry-After` support.
-- HTTP webhooks and SMTP with explicit TLS modes.
-- Text and HTML templates, structured errors, and graceful shutdown.
-
-## Quick start
-
-Requires Go 1.24 or newer:
+Install Notifykit with Go 1.24 or newer:
 
 ```sh
 go get github.com/containeroo/notifykit
 ```
 
-Replace the example URL with your webhook endpoint:
+## Send a webhook
+
+This complete program sends one notification synchronously. Replace the endpoint
+URL before running it. The default HTTP client has a 10-second timeout; retries
+are disabled unless you configure a policy.
 
 ```go
 package main
@@ -65,14 +56,27 @@ func main() {
 }
 ```
 
-## Documentation
+`ID` identifies the notification for logs and tracing. This example uses a fixed
+ID; real applications should supply an identifier appropriate to each event.
+`Data` builds the template context. The target calls it once to render the title,
+then again with that title to render the body.
 
-Start with the [documentation overview](docs/content/index.md) or [getting started](docs/content/getting-started.md). Full guides cover routing, retries, queueing, templates, SMTP, and logging/redaction.
+## Next steps
 
-Runnable examples: [single receiver](examples/single/main.go) and [multiple receivers](examples/multiple/main.go).
+Use [receiver settings](receivers.md) for routing and custom data,
+[retry policies](retries.md) for transient failures, or the
+[manager](manager.md) for asynchronous delivery. For email, use the
+[SMTP guide](email.md) with an [HTML template](templates.md).
 
-Documentation is built with [Lore](https://github.com/gi8lino/lore); see the [development guide](docs/content/development.md) for build instructions.
+## Runnable local examples
 
-## License
+The repository examples start local HTTP test servers, so they do not need an
+external webhook endpoint:
 
-[Apache License 2.0](LICENCE).
+```sh
+go run ./examples/single
+go run ./examples/multiple
+```
+
+The multiple-receiver example demonstrates no retries, default transient retries,
+and a custom policy for selected status codes.

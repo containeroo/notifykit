@@ -1,0 +1,19 @@
+site_name = "Notifykit"
+# Override with --site-url when publishing below a path or on a custom domain.
+site_url = "/"
+source_dir = "docs/content"
+output_dir = "docs/site"
+theme = "Light"
+language = "en"
+mermaid = true
+robots = "allow"
+
+[[external_links]]
+label = "Repository"
+url = "https://github.com/containeroo/notifykit"
+icon = "github-simple"
+
+[[external_links]]
+label = "Go API"
+url = "https://pkg.go.dev/github.com/containeroo/notifykit"
+icon = "book-open-lucide"

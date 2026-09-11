@@ -1,40 +1,64 @@
+.DEFAULT_GOAL := help
 
-# Default: no prefix. Can be overridden via `make patch VERSION_PREFIX=v`
-VERSION_PREFIX ?= v
+## Tool Versions
+
+# renovate: datasource=github-releases depName=golangci/golangci-lint
+GOLANGCI_LINT_VERSION ?= v2.13.2
+
+# renovate: datasource=github-releases depName=gi8lino/dev-tools
+DEV_TOOLS_VERSION ?= v0.7.0
+
+# renovate: datasource=github-releases depName=gi8lino/lore
+LORE_VERSION ?= v0.13.0
+
+# renovate: datasource=npm depName=prettier
+PRETTIER_VERSION ?= 3.9.6
+
+
+## Shared Development Tools
+
+include bin/dev-tools.mk
+include $(call dev-tools-module,tag)
+include $(call dev-tools-module,port)
+include $(call dev-tools-module,browser)
+include $(call dev-tools-module,help)
+
+
+## Project Tools
+
+GOLANGCI_LINT := bin/golangci-lint
+
+LORE := bin/lore
+LORE_ASSET ?= lore_{version}_{os}_{arch}.tar.gz
+
+
+## Documentation
+
+SITE_CONFIG ?= docs/site.toml
+SITE_PORT ?= $(call dev-port,site)
+SITE_URL = http://127.0.0.1:$(SITE_PORT)/
+
+
+## Formatting
+
+NPX ?= npx
+PRETTIER_MD_SOURCES := README.md "docs/content/**/*.md"
+
 
 ##@ Tagging
 
-# Find the latest tag (with prefix filter if defined, default to 0.0.0 if none found)
-# Lazy evaluation ensures fresh values on every run
-LATEST_TAG = $(shell git tag --list "$(VERSION_PREFIX)*" --sort=-v:refname | head -n 1)
-VERSION = $(shell [ -n "$(LATEST_TAG)" ] && echo $(LATEST_TAG) | sed "s/^$(VERSION_PREFIX)//" || echo "0.0.0")
-
-patch: ## Create a new patch release (x.y.Z+1)
-	@NEW_VERSION=$$(echo "$(VERSION)" | awk -F. '{printf "%d.%d.%d", $$1, $$2, $$3+1}') && \
-	git tag "$(VERSION_PREFIX)$${NEW_VERSION}" && \
-	echo "Tagged $(VERSION_PREFIX)$${NEW_VERSION}"
-
-minor: ## Create a new minor release (x.Y+1.0)
-	@NEW_VERSION=$$(echo "$(VERSION)" | awk -F. '{printf "%d.%d.0", $$1, $$2+1}') && \
-	git tag "$(VERSION_PREFIX)$${NEW_VERSION}" && \
-	echo "Tagged $(VERSION_PREFIX)$${NEW_VERSION}"
-
-major: ## Create a new major release (X+1.0.0)
-	@NEW_VERSION=$$(echo "$(VERSION)" | awk -F. '{printf "%d.0.0", $$1+1}') && \
-	git tag "$(VERSION_PREFIX)$${NEW_VERSION}" && \
-	echo "Tagged $(VERSION_PREFIX)$${NEW_VERSION}"
-
-tag: ## Show latest tag
-	@echo "Latest version: $(LATEST_TAG)"
-
-push: ## Push tags to remote
-	git push --tags
+.PHONY: tag
+tag: current
 
 
 ##@ Development
 
+.PHONY: fmt-md
+fmt-md: ## Format Markdown files with Prettier.
+	$(NPX) --yes prettier@$(PRETTIER_VERSION) --write $(PRETTIER_MD_SOURCES)
+
 .PHONY: fmt
-fmt: ## Run go fmt against code.
+fmt: fmt-md ## Run go fmt against code.
 	go fmt ./...
 
 .PHONY: vet
@@ -46,19 +70,53 @@ test: fmt vet ## Run unit tests.
 	go test -race -covermode=atomic -count=1 -parallel=4 -timeout=5m ./...
 
 .PHONY: cover
-cover: ## Display test coverage
+cover: ## Display test coverage.
 	go test -race -coverprofile=coverage.out -covermode=atomic -count=1 -parallel=4 -timeout=5m ./...
 	go tool cover -html=coverage.out
 
 .PHONY: clean
-clean: ## Clean up generated files
+clean: ## Clean up generated files.
 	find . -type f -name '*.out' -delete
 
-##@ General
 
-.PHONY: help
-help: ## Display this help.
-	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n"} /^[a-zA-Z_0-9-]+:.*?##/ { printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2 } /^##@/ { printf "\n\033[1m%s\033[0m\n", substr($$0, 5) } ' $(MAKEFILE_LIST)
+##@ Documentation
+
+.PHONY: lore
+lore: $(GITHUB_RELEASE_INSTALL) ## Install the pinned Lore release.
+	@$(GITHUB_RELEASE_INSTALL) \
+		--repo gi8lino/lore \
+		--tag "$(LORE_VERSION)" \
+		--asset "$(LORE_ASSET)" \
+		--binary lore \
+		--target "$(LORE)"
+
+.PHONY: site
+site: lore ## Build the published read-only documentation site.
+	$(LORE) build --config "$(SITE_CONFIG)"
+
+.PHONY: site-open
+site-open: $(DEV_PORT) $(OPEN_BROWSER) ## Open the documentation site once it responds.
+	$(call run-tool,$(OPEN_BROWSER),"$(SITE_URL)")
+
+.PHONY: site-serve
+site-serve: lore $(DEV_PORT) $(OPEN_BROWSER) ## Build, serve, and open the documentation site locally.
+	$(LORE) build \
+		--config "$(SITE_CONFIG)" \
+		--site-url "$(SITE_URL)"
+	@echo "Serving documentation at $(SITE_URL)"
+	@$(OPEN_BROWSER) "$(SITE_URL)" & \
+	browser_pid=$$!; \
+	trap 'kill "$$browser_pid" 2>/dev/null || true' EXIT; \
+	python3 -m http.server $(SITE_PORT) \
+		--bind 127.0.0.1 \
+		--directory docs/site
 
 
+##@ Dependencies
 
+.PHONY: golangci-lint
+golangci-lint: $(GO_INSTALL_TOOL) ## Download golangci-lint locally if necessary.
+	@$(GO_INSTALL_TOOL) \
+		--target "$(GOLANGCI_LINT)" \
+		--package github.com/golangci/golangci-lint/v2/cmd/golangci-lint \
+		--tool-version "$(GOLANGCI_LINT_VERSION)"

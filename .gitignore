@@ -1,2 +1,7 @@
 coverage.out
 cover.out
+
+# Generated Lore documentation
+/docs/site/
+
+/bin/
