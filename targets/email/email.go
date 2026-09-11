@@ -1,6 +1,7 @@
 package email
 
 import (
+	"cmp"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -12,7 +13,7 @@ import (
 	"net/mail"
 	"net/smtp"
 	"net/textproto"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -131,9 +132,9 @@ func New(opts ...Option) *Target {
 // are filled in the same way as New.
 func NewFromTarget(target Target, opts ...Option) *Target {
 	target.Headers = maps.Clone(target.Headers)
-	target.To = append([]string(nil), target.To...)
-	target.CC = append([]string(nil), target.CC...)
-	target.BCC = append([]string(nil), target.BCC...)
+	target.To = slices.Clone(target.To)
+	target.CC = slices.Clone(target.CC)
+	target.BCC = slices.Clone(target.BCC)
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&target)
@@ -144,9 +145,7 @@ func NewFromTarget(target Target, opts ...Option) *Target {
 }
 
 func applyDefaults(target *Target) {
-	if target.TLSMode == "" {
-		target.TLSMode = TLSRequired
-	}
+	target.TLSMode = cmp.Or(target.TLSMode, TLSRequired)
 	if target.Port == 0 {
 		if target.TLSMode == TLSImplicit {
 			target.Port = 465
@@ -192,17 +191,17 @@ func WithFrom(from string) Option {
 
 // WithTo configures primary message recipients.
 func WithTo(recipients ...string) Option {
-	return func(target *Target) { target.To = append([]string{}, recipients...) }
+	return func(target *Target) { target.To = slices.Clone(recipients) }
 }
 
 // WithCC configures carbon-copy message recipients.
 func WithCC(recipients ...string) Option {
-	return func(target *Target) { target.CC = append([]string{}, recipients...) }
+	return func(target *Target) { target.CC = slices.Clone(recipients) }
 }
 
 // WithBCC configures blind-carbon-copy envelope recipients.
 func WithBCC(recipients ...string) Option {
-	return func(target *Target) { target.BCC = append([]string{}, recipients...) }
+	return func(target *Target) { target.BCC = slices.Clone(recipients) }
 }
 
 // WithHeader configures one additional message header.
@@ -551,11 +550,7 @@ func smtpSend(client *smtp.Client, from string, to, cc, bcc []string, msg []byte
 
 // envelopeRecipients returns all SMTP envelope recipients.
 func envelopeRecipients(to, cc, bcc []string) []string {
-	recipients := make([]string, 0, len(to)+len(cc)+len(bcc))
-	recipients = append(recipients, to...)
-	recipients = append(recipients, cc...)
-	recipients = append(recipients, bcc...)
-	return recipients
+	return slices.Concat(to, cc, bcc)
 }
 
 // buildEmail returns a raw RFC 5322 style email message.
@@ -593,11 +588,7 @@ func appendHeaders(lines []string, headers map[string]string) []string {
 	if len(headers) == 0 {
 		return lines
 	}
-	names := make([]string, 0, len(headers))
-	for name := range headers {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := slices.Sorted(maps.Keys(headers))
 	for _, name := range names {
 		lines = append(lines, name+": "+headers[name])
 	}

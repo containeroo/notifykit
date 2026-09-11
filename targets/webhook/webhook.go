@@ -2,6 +2,7 @@ package webhook
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -160,21 +161,15 @@ func NewFromTarget(target Target, opts ...Option) *Target {
 }
 
 func applyDefaults(target *Target) {
-	if target.Method == "" {
-		target.Method = http.MethodPost
-	}
+	target.Method = cmp.Or(target.Method, http.MethodPost)
 	if target.Client == nil {
 		target.Client = NewClient(10 * time.Second)
 	}
 	if target.Logger == nil {
 		target.Logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
-	if target.LogResponse == "" {
-		target.LogResponse = LogResponseSummary
-	}
-	if target.ResponseBodyLimit == 0 {
-		target.ResponseBodyLimit = 4096
-	}
+	target.LogResponse = cmp.Or(target.LogResponse, LogResponseSummary)
+	target.ResponseBodyLimit = cmp.Or(target.ResponseBodyLimit, 4096)
 }
 
 // WithName configures the human-readable target name used in logs.
@@ -514,10 +509,7 @@ func (t *Target) responseLogFields(resp *http.Response, body string, truncated b
 
 // label returns the configured target name or a secret-safe fallback.
 func (t *Target) label() string {
-	if t.Name != "" {
-		return t.Name
-	}
-	return "webhook"
+	return cmp.Or(t.Name, "webhook")
 }
 
 // NewClient constructs an HTTP client for webhook delivery.

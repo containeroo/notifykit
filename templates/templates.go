@@ -2,6 +2,7 @@ package templates
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -10,7 +11,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -168,7 +169,7 @@ func (t builtinTemplates) names() []string {
 		names = append(names, strings.TrimSuffix(entry.Name(), ".tmpl"))
 	}
 
-	sort.Strings(names)
+	slices.Sort(names)
 	return names
 }
 
@@ -363,9 +364,7 @@ func parseOptions(opts ...Option) (options, error) {
 			opt(&cfg)
 		}
 	}
-	if cfg.missingKey == "" {
-		cfg.missingKey = MissingKeyError
-	}
+	cfg.missingKey = cmp.Or(cfg.missingKey, MissingKeyError)
 	if err := validateMissingKey(cfg.missingKey); err != nil {
 		return options{}, err
 	}

@@ -82,11 +82,7 @@ func waitForRetry(ctx context.Context, duration time.Duration) error {
 //
 // A target-provided RetryAfter is a minimum and is never capped by MaxBackoff.
 func retryDelay(cfg RetryConfig, retry int, result DeliveryResult) time.Duration {
-	wait := retryBackoff(cfg, retry)
-	if result.RetryAfter > wait {
-		return result.RetryAfter
-	}
-	return wait
+	return max(retryBackoff(cfg, retry), result.RetryAfter)
 }
 
 // retryBackoff returns the wait duration before retry attempt.
@@ -106,8 +102,8 @@ func retryBackoff(cfg RetryConfig, retry int) time.Duration {
 		}
 	}
 
-	if cfg.MaxBackoff > 0 && wait > cfg.MaxBackoff {
-		wait = cfg.MaxBackoff
+	if cfg.MaxBackoff > 0 {
+		wait = min(wait, cfg.MaxBackoff)
 	}
 	if cfg.Jitter {
 		return jitterBackoff(wait)

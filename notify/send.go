@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -8,7 +9,6 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
-	"strings"
 )
 
 // Send synchronously delivers notification to the configured receivers.
@@ -53,14 +53,10 @@ func normalizeReceivers(receivers Receivers) Receivers {
 			continue
 		}
 		normalized := *receiver
-		if receiver.ID == "" {
-			normalized.ID = id
-		}
-		if receiver.Name == "" {
-			normalized.Name = string(id)
-		}
+		normalized.ID = cmp.Or(receiver.ID, id)
+		normalized.Name = cmp.Or(receiver.Name, string(id))
 		normalized.CustomData = maps.Clone(receiver.CustomData)
-		normalized.Targets = append([]Target(nil), receiver.Targets...)
+		normalized.Targets = slices.Clone(receiver.Targets)
 		out[id] = &normalized
 	}
 	return out
@@ -96,7 +92,7 @@ func resolveReceivers(receivers Receivers, ids []ReceiverID, logger *slog.Logger
 		for _, receiver := range receivers {
 			out = append(out, receiver)
 		}
-		slices.SortFunc(out, func(a, b *Receiver) int { return strings.Compare(string(a.ID), string(b.ID)) })
+		slices.SortFunc(out, func(a, b *Receiver) int { return cmp.Compare(a.ID, b.ID) })
 		return out
 	}
 
