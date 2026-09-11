@@ -39,7 +39,7 @@ func withRetry(
 
 	for attempt := range maxAttempts {
 		if attempt > 0 {
-			wait := retryBackoff(cfg, attempt)
+			wait := retryDelay(cfg, attempt, lastResult)
 			if wait > 0 {
 				logger.Debug(
 					"notification target retry",
@@ -91,6 +91,17 @@ func waitForRetry(ctx context.Context, duration time.Duration) error {
 	case <-timer.C:
 		return nil
 	}
+}
+
+// retryDelay returns the effective wait before a retry.
+//
+// A target-provided RetryAfter is a minimum and is never capped by MaxBackoff.
+func retryDelay(cfg RetryConfig, retry int, result DeliveryResult) time.Duration {
+	wait := retryBackoff(cfg, retry)
+	if result.RetryAfter > wait {
+		return result.RetryAfter
+	}
+	return wait
 }
 
 // retryBackoff returns the wait duration before retry attempt.

@@ -144,6 +144,43 @@ func TestWithRetryInternal(t *testing.T) {
 	})
 }
 
+// TestRetryDelay tests expected behavior.
+func TestRetryDelay(t *testing.T) {
+	t.Parallel()
+
+	t.Run("uses local backoff when longer", func(t *testing.T) {
+		t.Parallel()
+
+		wait := retryDelay(
+			RetryConfig{Backoff: 2 * time.Second},
+			1,
+			DeliveryResult{RetryAfter: time.Second},
+		)
+
+		assert.Equal(t, 2*time.Second, wait)
+	})
+
+	t.Run("uses target retry after when longer", func(t *testing.T) {
+		t.Parallel()
+
+		wait := retryDelay(
+			RetryConfig{Backoff: time.Second, MaxBackoff: 2 * time.Second},
+			4,
+			DeliveryResult{RetryAfter: 30 * time.Second},
+		)
+
+		assert.Equal(t, 30*time.Second, wait)
+	})
+
+	t.Run("uses retry after without local backoff", func(t *testing.T) {
+		t.Parallel()
+
+		wait := retryDelay(RetryConfig{}, 1, DeliveryResult{RetryAfter: 3 * time.Second})
+
+		assert.Equal(t, 3*time.Second, wait)
+	})
+}
+
 // TestRetryBackoff tests expected behavior.
 func TestRetryBackoff(t *testing.T) {
 	t.Parallel()

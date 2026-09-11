@@ -191,6 +191,24 @@ func TestTargetSendResult(t *testing.T) {
 		assert.NotContains(t, err.Error(), "secret-response-token")
 		assert.NotContains(t, err.Error(), "secret-url-token")
 	})
+
+	t.Run("returns retry after from response", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Retry-After", "5")
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		result, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.Equal(t, http.StatusTooManyRequests, result.StatusCode)
+		assert.Equal(t, 5*time.Second, result.RetryAfter)
+	})
 }
 
 // TestTargetValidate tests expected behavior.
@@ -294,7 +312,7 @@ func TestTargetPost(t *testing.T) {
 		defer server.Close()
 
 		target := New(WithURL(server.URL), WithHeader("X-Token", "token"))
-		status, code, body, err := target.post(context.Background(), []byte(`{"ok":true}`))
+		status, code, body, _, err := target.post(context.Background(), []byte(`{"ok":true}`))
 		require.NoError(t, err)
 		assert.Equal(t, "200 OK", status)
 		assert.Equal(t, http.StatusOK, code)
@@ -314,7 +332,7 @@ func TestTargetPost(t *testing.T) {
 			WithURL(server.URL),
 			WithHeader("Content-Type", "application/cloudevents+json"),
 		)
-		_, _, _, err := target.post(context.Background(), []byte(`{"ok":true}`))
+		_, _, _, _, err := target.post(context.Background(), []byte(`{"ok":true}`))
 		require.NoError(t, err)
 	})
 
@@ -325,7 +343,7 @@ func TestTargetPost(t *testing.T) {
 			WithURL("http://127.0.0.1/unused"),
 			WithHeader("X-Test:Bad", "value"),
 		)
-		_, _, _, err := target.post(context.Background(), []byte("{}"))
+		_, _, _, _, err := target.post(context.Background(), []byte("{}"))
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "contains invalid character")
@@ -335,8 +353,47 @@ func TestTargetPost(t *testing.T) {
 		t.Parallel()
 
 		target := New(WithURL("://bad-url"))
-		_, _, _, err := target.post(context.Background(), []byte("{}"))
+		_, _, _, _, err := target.post(context.Background(), []byte("{}"))
 		require.Error(t, err)
+	})
+}
+
+// TestParseRetryAfter tests expected behavior.
+func TestParseRetryAfter(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.September, 11, 8, 30, 0, 0, time.UTC)
+
+	t.Run("parses delay seconds", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, 30*time.Second, parseRetryAfter("30", now))
+	})
+
+	t.Run("parses http date", func(t *testing.T) {
+		t.Parallel()
+
+		retryAt := now.Add(45 * time.Second).Format(http.TimeFormat)
+		assert.Equal(t, 45*time.Second, parseRetryAfter(retryAt, now))
+	})
+
+	t.Run("ignores past http date", func(t *testing.T) {
+		t.Parallel()
+
+		retryAt := now.Add(-time.Minute).Format(http.TimeFormat)
+		assert.Equal(t, time.Duration(0), parseRetryAfter(retryAt, now))
+	})
+
+	t.Run("ignores invalid value", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, time.Duration(0), parseRetryAfter("later", now))
+	})
+
+	t.Run("ignores negative delay", func(t *testing.T) {
+		t.Parallel()
+
+		assert.Equal(t, time.Duration(0), parseRetryAfter("-1", now))
 	})
 }
 

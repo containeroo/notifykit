@@ -63,6 +63,11 @@ type DeliveryResult struct {
 	// may contain sensitive data such as webhook URLs, tokens, echoed payloads,
 	// or authentication diagnostics.
 	Response string
+
+	// RetryAfter requests a minimum delay before the next retry.
+	//
+	// Targets may set this from transport-specific hints such as HTTP Retry-After.
+	RetryAfter time.Duration
 }
 
 // Notifier enqueues notifications for delivery.
