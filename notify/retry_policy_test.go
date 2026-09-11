@@ -7,7 +7,6 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 type retryNetworkError struct {
@@ -17,34 +16,6 @@ type retryNetworkError struct {
 func (e retryNetworkError) Error() string   { return "network failed" }
 func (e retryNetworkError) Timeout() bool   { return e.timeout }
 func (e retryNetworkError) Temporary() bool { return true }
-
-func TestPermanent(t *testing.T) {
-	t.Parallel()
-
-	t.Run("preserves nil", func(t *testing.T) {
-		t.Parallel()
-
-		assert.NoError(t, Permanent(nil))
-	})
-
-	t.Run("marks wrapped error", func(t *testing.T) {
-		t.Parallel()
-
-		boom := errors.New("boom")
-		err := Permanent(boom)
-
-		require.Error(t, err)
-		assert.ErrorIs(t, err, boom)
-		assert.True(t, IsPermanent(err))
-	})
-
-	t.Run("preserves existing permanent error", func(t *testing.T) {
-		t.Parallel()
-
-		err := Permanent(errors.New("boom"))
-		assert.Equal(t, err, Permanent(err))
-	})
-}
 
 func TestRetryOnError(t *testing.T) {
 	t.Parallel()
@@ -123,23 +94,36 @@ func TestRetryOnServerError(t *testing.T) {
 func TestRetryOnTimeout(t *testing.T) {
 	t.Parallel()
 
-	t.Run("retries context deadline", func(t *testing.T) {
+	t.Run("does not retry unclassified context deadline", func(t *testing.T) {
 		t.Parallel()
 
-		assert.True(t, RetryOnTimeout(DeliveryResult{}, context.DeadlineExceeded))
+		assert.False(t, RetryOnTimeout(DeliveryResult{}, context.DeadlineExceeded))
+	})
+
+	t.Run("retries classified context deadline", func(t *testing.T) {
+		t.Parallel()
+
+		assert.True(t, RetryOnTimeout(DeliveryResult{}, Transport(context.DeadlineExceeded)))
 	})
 
 	t.Run("retries network timeout", func(t *testing.T) {
 		t.Parallel()
 
-		err := &url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{timeout: true}}
+		err := Transport(&url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{timeout: true}})
+		assert.True(t, RetryOnTimeout(DeliveryResult{}, err))
+	})
+
+	t.Run("retries explicitly classified transport timeout", func(t *testing.T) {
+		t.Parallel()
+
+		err := Transport(retryNetworkError{timeout: true})
 		assert.True(t, RetryOnTimeout(DeliveryResult{}, err))
 	})
 
 	t.Run("does not retry non-timeout network error", func(t *testing.T) {
 		t.Parallel()
 
-		err := &url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{}}
+		err := Transport(&url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{}})
 		assert.False(t, RetryOnTimeout(DeliveryResult{}, err))
 	})
 }
@@ -150,14 +134,21 @@ func TestRetryOnNetworkError(t *testing.T) {
 	t.Run("retries transport error", func(t *testing.T) {
 		t.Parallel()
 
-		err := &url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{}}
+		err := Transport(&url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{}})
+		assert.True(t, RetryOnNetworkError(DeliveryResult{}, err))
+	})
+
+	t.Run("retries explicitly classified transport error", func(t *testing.T) {
+		t.Parallel()
+
+		err := Transport(errors.New("response stream failed"))
 		assert.True(t, RetryOnNetworkError(DeliveryResult{}, err))
 	})
 
 	t.Run("does not retry timeout", func(t *testing.T) {
 		t.Parallel()
 
-		err := &url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{timeout: true}}
+		err := Transport(&url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{timeout: true}})
 		assert.False(t, RetryOnNetworkError(DeliveryResult{}, err))
 	})
 
@@ -172,6 +163,13 @@ func TestRetryOnNetworkError(t *testing.T) {
 		t.Parallel()
 
 		err := Permanent(retryNetworkError{})
+		assert.False(t, RetryOnNetworkError(DeliveryResult{}, err))
+	})
+
+	t.Run("does not retry permanent error containing transport classification", func(t *testing.T) {
+		t.Parallel()
+
+		err := Permanent(Transport(errors.New("bad configuration")))
 		assert.False(t, RetryOnNetworkError(DeliveryResult{}, err))
 	})
 }
@@ -228,14 +226,21 @@ func TestDefaultRetryPolicy(t *testing.T) {
 	t.Run("retries timeout", func(t *testing.T) {
 		t.Parallel()
 
-		assert.True(t, DefaultRetryPolicy(DeliveryResult{}, context.DeadlineExceeded))
+		assert.True(t, DefaultRetryPolicy(DeliveryResult{}, Transport(context.DeadlineExceeded)))
 	})
 
 	t.Run("retries network error", func(t *testing.T) {
 		t.Parallel()
 
-		err := &url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{}}
+		err := Transport(&url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{}})
 		assert.True(t, DefaultRetryPolicy(DeliveryResult{}, err))
+	})
+
+	t.Run("does not retry unclassified network error", func(t *testing.T) {
+		t.Parallel()
+
+		err := &url.Error{Op: "Post", URL: "https://example.test", Err: retryNetworkError{}}
+		assert.False(t, DefaultRetryPolicy(DeliveryResult{}, err))
 	})
 
 	t.Run("does not retry client error", func(t *testing.T) {

@@ -282,7 +282,10 @@ func (t *Target) Validate(payload notify.Payload) error {
 	if _, err := t.Render(payload); err != nil {
 		return err
 	}
-	return validateHeaders(t.Headers)
+	if err := validateHeaders(t.Headers); err != nil {
+		return err
+	}
+	return validateEndpoint(t.Method, t.URL)
 }
 
 // Render renders the configured title and body templates.
@@ -332,6 +335,9 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 	if err != nil {
 		return "", 0, "", 0, notify.Permanent(err)
 	}
+	if err := validateRequestURL(req); err != nil {
+		return "", 0, "", 0, notify.Permanent(err)
+	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	for name, value := range t.Headers {
 		req.Header.Set(name, value)
@@ -342,7 +348,7 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 	duration := time.Since(start)
 	if err != nil {
 		t.Logger.Error("webhook request failed", "duration", duration.Round(time.Millisecond).String(), "error", err)
-		return "", 0, "", 0, err
+		return "", 0, "", 0, notify.Transport(err)
 	}
 	defer resp.Body.Close() // nolint:errcheck
 
@@ -350,7 +356,7 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 	responseBody, truncated, err := readResponseBody(resp.Body, t.ResponseBodyLimit)
 	if err != nil {
 		t.Logger.Error("webhook response read failed", "status", resp.Status, "statusCode", resp.StatusCode, "duration", duration.Round(time.Millisecond).String(), "error", err)
-		return resp.Status, resp.StatusCode, "", retryAfter, err
+		return resp.Status, resp.StatusCode, "", retryAfter, notify.Transport(err)
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -361,6 +367,36 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 
 	t.logSuccessfulResponse(resp, responseBody, truncated, duration)
 	return resp.Status, resp.StatusCode, responseBody, retryAfter, nil
+}
+
+// validateEndpoint validates the HTTP method and endpoint URL without sending a request.
+func validateEndpoint(method, endpoint string) error {
+	if method == "" {
+		method = http.MethodPost
+	}
+
+	request, err := http.NewRequest(method, endpoint, http.NoBody)
+	if err != nil {
+		return err
+	}
+	return validateRequestURL(request)
+}
+
+// validateRequestURL reports whether request targets an absolute HTTP(S) endpoint.
+func validateRequestURL(request *http.Request) error {
+	if request == nil || request.URL == nil {
+		return errors.New("webhook URL is required")
+	}
+
+	switch strings.ToLower(request.URL.Scheme) {
+	case "http", "https":
+	default:
+		return errors.New("webhook URL must use http or https")
+	}
+	if request.URL.Host == "" {
+		return errors.New("webhook URL host is required")
+	}
+	return nil
 }
 
 // parseRetryAfter parses HTTP Retry-After as delay-seconds or an HTTP date.

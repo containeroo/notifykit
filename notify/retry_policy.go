@@ -4,35 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
-	"net/url"
 )
-
-// permanentError marks an error as non-retryable for built-in retry policies.
-type permanentError struct {
-	err error
-}
-
-// Error returns the wrapped error message.
-func (e permanentError) Error() string { return e.err.Error() }
-
-// Unwrap returns the wrapped error.
-func (e permanentError) Unwrap() error { return e.err }
-
-// Permanent marks err as non-retryable for Notifykit's built-in retry policies.
-//
-// Custom policies remain free to inspect or retry the wrapped error.
-func Permanent(err error) error {
-	if err == nil || IsPermanent(err) {
-		return err
-	}
-	return permanentError{err: err}
-}
-
-// IsPermanent reports whether err was marked with Permanent.
-func IsPermanent(err error) bool {
-	var permanent permanentError
-	return errors.As(err, &permanent)
-}
 
 // RetryOnError retries every non-permanent error.
 //
@@ -66,27 +38,20 @@ func RetryOnServerError(result DeliveryResult, err error) bool {
 	return result.StatusCode >= 500 && result.StatusCode <= 599
 }
 
-// RetryOnTimeout retries context deadlines and network timeout errors.
+// RetryOnTimeout retries transport failures that represent a timeout.
 func RetryOnTimeout(_ DeliveryResult, err error) bool {
-	if err == nil || IsPermanent(err) {
+	if err == nil || !IsTransport(err) {
 		return false
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-
-	var networkErr net.Error
-	return errors.As(transportError(err), &networkErr) && networkErr.Timeout()
+	return isTimeoutError(err)
 }
 
-// RetryOnNetworkError retries non-timeout network transport errors.
+// RetryOnNetworkError retries non-timeout transport failures.
 func RetryOnNetworkError(_ DeliveryResult, err error) bool {
-	if err == nil || IsPermanent(err) {
+	if err == nil || !IsTransport(err) {
 		return false
 	}
-
-	var networkErr net.Error
-	return errors.As(transportError(err), &networkErr) && !networkErr.Timeout()
+	return !isTimeoutError(err)
 }
 
 // AnyRetryPolicy combines policies and retries when any policy accepts the failure.
@@ -111,18 +76,18 @@ var defaultRetryPolicy = AnyRetryPolicy(
 
 // DefaultRetryPolicy applies Notifykit's conservative transient-failure policy.
 //
-// It retries timeouts, network transport failures, HTTP-style 408 and 429
-// responses, and 5xx responses. Other failures are not retried by default.
+// It retries classified transport failures, HTTP-style 408 and 429 responses,
+// and 5xx responses. Other failures are not retried by default.
 func DefaultRetryPolicy(result DeliveryResult, err error) bool {
 	return defaultRetryPolicy(result, err)
 }
 
-// transportError unwraps URL request errors so malformed URLs are not mistaken
-// for network failures merely because url.Error implements net.Error itself.
-func transportError(err error) error {
-	var urlErr *url.Error
-	if errors.As(err, &urlErr) {
-		return urlErr.Err
+// isTimeoutError reports whether a transport error represents a timeout.
+func isTimeoutError(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
 	}
-	return err
+
+	var networkErr net.Error
+	return errors.As(err, &networkErr) && networkErr.Timeout()
 }

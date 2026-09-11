@@ -183,7 +183,7 @@ err := notify.Send(ctx, alert, receivers, logger)
 
 ### Retry policies
 
-A receiver with retries enabled uses `notify.DefaultRetryPolicy` when `RetryConfig.Policy` is nil. The default is intentionally conservative: it retries timeouts, network transport errors, status 408 and 429, and status codes from 500 through 599. Other failures are returned immediately.
+A receiver with retries enabled uses `notify.DefaultRetryPolicy` when `RetryConfig.Policy` is nil. The default is intentionally conservative: it retries classified transport timeouts and network failures, status 408 and 429, and status codes from 500 through 599. Other failures are returned immediately.
 
 Retry policies are small composable functions. Override the default when a receiver needs different semantics:
 
@@ -206,7 +206,7 @@ Set `Jitter` to use full jitter after exponential backoff and `MaxBackoff` are a
 
 Targets can also set `DeliveryResult.RetryAfter` to request a minimum delay before the next attempt. The webhook target derives this automatically from HTTP `Retry-After` headers, supporting both delay-seconds and HTTP-date forms. A target-provided delay is honored when it is longer than the local backoff and is not capped by `MaxBackoff`.
 
-`RetryOnError` is available for targets that want the original retry-every-error behavior. Targets can wrap configuration or rendering failures with `notify.Permanent(err)` so the built-in policies never retry them. Custom policies remain free to make their own decision.
+`RetryOnError` is available for targets that want the original retry-every-error behavior. Targets classify failures before retry policy evaluation: configuration and rendering failures use `notify.Permanent(err)`, network and response-stream failures use `notify.Transport(err)`, and HTTP responses remain status-based through `DeliveryResult.StatusCode`. `RetryOnTimeout` and `RetryOnNetworkError` only act on errors explicitly marked with `notify.Transport`; unclassified errors are not treated as transport failures by the default policy. `notify.IsPermanent` and `notify.IsTransport` expose the classifications to custom policies. Permanent classification always takes precedence.
 
 Notifykit normalizes receiver configuration when receivers enter `Send`, `SendTo`, `NewReceivers`, or `NewManager`:
 

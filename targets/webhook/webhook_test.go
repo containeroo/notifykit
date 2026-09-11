@@ -40,6 +40,14 @@ type errReader struct{}
 // Read returns the configured read error.
 func (errReader) Read(p []byte) (int, error) { return 0, errors.New("read failed") }
 
+// roundTripFunc adapts a function to http.RoundTripper for delivery classification tests.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+// RoundTrip executes the configured function.
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
 // TestNew tests expected behavior.
 func TestNew(t *testing.T) {
 	t.Parallel()
@@ -156,6 +164,44 @@ func TestTargetSendResult(t *testing.T) {
 		assert.Contains(t, err.Error(), "value must not contain newline characters")
 	})
 
+	t.Run("classifies request failure as transport", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		target.Client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return nil, errors.New("connection failed")
+		})}
+
+		result, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.True(t, notify.IsTransport(err))
+		assert.False(t, notify.IsPermanent(err))
+		assert.True(t, notify.DefaultRetryPolicy(result, err))
+	})
+
+	t.Run("classifies response read failure as transport", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		target.Client = &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			return &http.Response{
+				Status:     "200 OK",
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(errReader{}),
+			}, nil
+		})}
+
+		result, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.Equal(t, http.StatusOK, result.StatusCode)
+		assert.True(t, notify.IsTransport(err))
+		assert.False(t, notify.IsPermanent(err))
+		assert.True(t, notify.DefaultRetryPolicy(result, err))
+	})
+
 	t.Run("returns response details on success", func(t *testing.T) {
 		t.Parallel()
 
@@ -186,6 +232,8 @@ func TestTargetSendResult(t *testing.T) {
 		result, err := target.SendResult(context.Background(), payload())
 		require.Error(t, err)
 		assert.Equal(t, http.StatusBadGateway, result.StatusCode)
+		assert.False(t, notify.IsPermanent(err))
+		assert.False(t, notify.IsTransport(err))
 		assert.True(t, notify.DefaultRetryPolicy(result, err))
 		assert.Contains(t, result.Response, "secret-response-token")
 		assert.NotContains(t, err.Error(), "secret-response-token")
@@ -241,6 +289,18 @@ func TestTargetValidate(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "must not have leading or trailing whitespace")
+	})
+
+	t.Run("returns endpoint validation error", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		target.URL = "ftp://example.test/hook"
+
+		err := target.Validate(payload())
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "must use http or https")
 	})
 }
 
@@ -349,12 +409,25 @@ func TestTargetPost(t *testing.T) {
 		assert.Contains(t, err.Error(), "contains invalid character")
 	})
 
-	t.Run("returns request creation error", func(t *testing.T) {
+	t.Run("returns request creation error as permanent", func(t *testing.T) {
 		t.Parallel()
 
 		target := New(WithURL("://bad-url"))
 		_, _, _, _, err := target.post(context.Background(), []byte("{}"))
 		require.Error(t, err)
+		assert.True(t, notify.IsPermanent(err))
+		assert.False(t, notify.IsTransport(err))
+	})
+
+	t.Run("returns unsupported endpoint as permanent", func(t *testing.T) {
+		t.Parallel()
+
+		target := New(WithURL("ftp://example.test/hook"))
+		_, _, _, _, err := target.post(context.Background(), []byte("{}"))
+		require.Error(t, err)
+		assert.True(t, notify.IsPermanent(err))
+		assert.False(t, notify.IsTransport(err))
+		assert.Contains(t, err.Error(), "must use http or https")
 	})
 }
 
