@@ -127,6 +127,8 @@ Retry attempts stop immediately when a target returns a permanent error. Built-i
 
 Set `RetryConfig.Jitter` to randomize each retry delay between zero and the exponential backoff. Full jitter is useful when many receivers may fail at the same time because it avoids synchronized retry bursts. `MaxBackoff` is applied before jitter.
 
+Webhook targets also honor HTTP `Retry-After`. Delay-seconds and HTTP-date values are parsed into `DeliveryResult.RetryAfter`; before the next attempt Notifykit waits for the longer of the target-requested delay and the locally calculated backoff. This prevents retries from running earlier than a rate-limited or temporarily unavailable endpoint requested.
+
 ## Target options
 
 Webhook and email targets use functional options for simple construction.

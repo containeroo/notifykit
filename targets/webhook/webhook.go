@@ -11,6 +11,7 @@ import (
 	"log/slog"
 	"maps"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -260,11 +261,12 @@ func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify
 		return notify.DeliveryResult{}, notify.Permanent(err)
 	}
 
-	status, statusCode, responseBody, err := t.post(ctx, body)
+	status, statusCode, responseBody, retryAfter, err := t.post(ctx, body)
 	result := notify.DeliveryResult{
 		Status:     status,
 		StatusCode: statusCode,
 		Response:   truncateBody(responseBody, t.ResponseBodyLimit),
+		RetryAfter: retryAfter,
 	}
 	if err != nil {
 		return result, err
@@ -312,9 +314,9 @@ func (t *Target) Render(payload notify.Payload) ([]byte, error) {
 }
 
 // post sends the rendered body to the configured webhook endpoint.
-func (t *Target) post(ctx context.Context, body []byte) (status string, statusCode int, response string, err error) {
+func (t *Target) post(ctx context.Context, body []byte) (status string, statusCode int, response string, retryAfter time.Duration, err error) {
 	if err := validateHeaders(t.Headers); err != nil {
-		return "", 0, "", notify.Permanent(err)
+		return "", 0, "", 0, notify.Permanent(err)
 	}
 
 	client := t.Client
@@ -328,7 +330,7 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 
 	req, err := http.NewRequestWithContext(ctx, method, t.URL, bytes.NewReader(body))
 	if err != nil {
-		return "", 0, "", notify.Permanent(err)
+		return "", 0, "", 0, notify.Permanent(err)
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	for name, value := range t.Headers {
@@ -340,14 +342,15 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 	duration := time.Since(start)
 	if err != nil {
 		t.Logger.Error("webhook request failed", "duration", duration.Round(time.Millisecond).String(), "error", err)
-		return "", 0, "", err
+		return "", 0, "", 0, err
 	}
 	defer resp.Body.Close() // nolint:errcheck
 
+	retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 	responseBody, truncated, err := readResponseBody(resp.Body, t.ResponseBodyLimit)
 	if err != nil {
 		t.Logger.Error("webhook response read failed", "status", resp.Status, "statusCode", resp.StatusCode, "duration", duration.Round(time.Millisecond).String(), "error", err)
-		return resp.Status, resp.StatusCode, "", err
+		return resp.Status, resp.StatusCode, "", retryAfter, err
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -356,11 +359,36 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 			err = notify.Permanent(err)
 		}
 		t.logFailedResponse(resp, responseBody, truncated, duration, err)
-		return resp.Status, resp.StatusCode, responseBody, err
+		return resp.Status, resp.StatusCode, responseBody, retryAfter, err
 	}
 
 	t.logSuccessfulResponse(resp, responseBody, truncated, duration)
-	return resp.Status, resp.StatusCode, responseBody, nil
+	return resp.Status, resp.StatusCode, responseBody, retryAfter, nil
+}
+
+// parseRetryAfter parses an HTTP Retry-After delay or date.
+func parseRetryAfter(value string, now time.Time) time.Duration {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if seconds <= 0 || seconds > int64((1<<63-1)/time.Second) {
+			return 0
+		}
+		return time.Duration(seconds) * time.Second
+	}
+
+	retryAt, err := http.ParseTime(value)
+	if err != nil {
+		return 0
+	}
+	wait := retryAt.Sub(now)
+	if wait <= 0 {
+		return 0
+	}
+	return wait
 }
 
 // retryableStatus reports whether an HTTP response is worth retrying.

@@ -163,6 +163,35 @@ func TestIsRetryable(t *testing.T) {
 	})
 }
 
+// TestRetryDelay tests expected behavior.
+func TestRetryDelay(t *testing.T) {
+	t.Parallel()
+
+	t.Run("uses configured backoff without target delay", func(t *testing.T) {
+		t.Parallel()
+
+		wait := retryDelay(RetryConfig{Backoff: time.Second}, 2, 0)
+
+		assert.Equal(t, 2*time.Second, wait)
+	})
+
+	t.Run("uses longer target delay", func(t *testing.T) {
+		t.Parallel()
+
+		wait := retryDelay(RetryConfig{Backoff: time.Second}, 2, 5*time.Second)
+
+		assert.Equal(t, 5*time.Second, wait)
+	})
+
+	t.Run("keeps longer configured backoff", func(t *testing.T) {
+		t.Parallel()
+
+		wait := retryDelay(RetryConfig{Backoff: 5 * time.Second}, 1, time.Second)
+
+		assert.Equal(t, 5*time.Second, wait)
+	})
+}
+
 // TestRetryBackoff tests expected behavior.
 func TestRetryBackoff(t *testing.T) {
 	t.Parallel()
