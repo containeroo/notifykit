@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"maps"
 )
 
 // deliveryEngine sends notifications to runtime targets.
@@ -30,16 +31,16 @@ func (d *deliveryEngine) dispatch(ctx context.Context, payload Payload, receiver
 // dispatchReceiver sends a payload to every target configured on one receiver.
 func (d *deliveryEngine) dispatchReceiver(ctx context.Context, receiver *Receiver, payload Payload) error {
 	var errs []error
-	for _, target := range receiver.Targets {
+	for index, target := range receiver.Targets {
 		targetPayload := payload
 		targetPayload.Receiver = receiver.Name
-		targetPayload.CustomData = receiver.CustomData
+		targetPayload.CustomData = maps.Clone(receiver.CustomData)
 
 		result, attempts, err := withRetry(ctx, d.logger, receiver.Retry, func() (DeliveryResult, error) {
 			return target.Send(ctx, targetPayload)
 		})
 		if err != nil {
-			errs = append(errs, err)
+			errs = append(errs, &DeliveryError{ReceiverID: receiver.ID, TargetType: target.Type(), TargetIndex: index, Attempts: attempts, Result: result, Err: err})
 			d.logger.Error(
 				"notification target failed",
 				"receiver", receiver.Name,

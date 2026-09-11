@@ -558,7 +558,7 @@ Run the full local check suite with:
 make test
 ```
 
-This runs `go fmt`, `go vet`, and `go test -covermode=atomic` for all non-example packages.
+This runs `go fmt`, `go vet`, and `go test -race -covermode=atomic` for all packages. CI also checks Go 1.24 and the current stable Go version.
 
 ## Application boundary
 
@@ -575,4 +575,74 @@ Notifykit owns only the notification mechanics.
 
 ## License
 
-This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache 2.0 License. See the [LICENCE](LICENCE) file for details.
+
+## Delivery safety and ownership
+
+SMTP now requires STARTTLS by default and fails if the relay does not offer it.
+Use `email.WithTLSMode(email.TLSImplicit)` for TLS from connection establishment
+(default port 465), or `email.WithTLSMode(email.TLSPlaintext)` for an explicitly
+trusted plaintext relay. Credentials are rejected in plaintext mode. Certificate
+verification remains enabled unless explicitly disabled.
+
+Use HTML templates for email bodies so notification values are escaped for their
+HTML context:
+
+```go
+body, err := templates.LoadHTMLSource(nil, "examples/email-html.tmpl", templates.WithDefaultFuncs())
+// Handle err before constructing the target.
+target := email.New(email.WithTemplate(body))
+```
+
+`templates.ParseHTMLTemplate` parses inline HTML. Existing text templates remain
+supported for compatibility; they do not escape HTML. Template source and custom
+functions must be trusted. Pass untrusted data as ordinary strings, not trusted
+HTML types. Webhooks continue to use text templates with the `json` helper.
+
+Receiver structs, target slices, and top-level `CustomData` maps are copied when
+accepted by Notifykit. `Manager.Receivers()` returns snapshots with those same
+copying rules. Nested custom values and target objects are shared and must remain
+immutable during delivery. Enqueued notifications must remain immutable until
+completion; their `Data` methods and custom targets must support concurrent calls
+when used concurrently. `NewFromTarget` copies header maps and email recipient
+slices before applying options.
+
+Duplicate routing IDs are delivered once. Receivers with no targets are rejected
+by `Send` and `NewManager`. Broadcast receivers are processed in ID order.
+
+Failures returned by `Send` retain receiver and target context:
+
+```go
+var failure *notify.DeliveryError
+if errors.As(err, &failure) {
+    // ReceiverID, TargetType, TargetIndex (zero-based), Attempts, Result, Err
+}
+```
+
+Multiple failures are joined with `errors.Join`. `errors.Is` still finds underlying
+errors. `DeliveryError.Result.Response` may contain secrets; it is not included in
+the error string.
+
+## Queue capacity and completion
+
+`notify.WithQueueCapacity(128)` bounds admitted queued notifications, excluding
+active deliveries. Producers wait for admission before the manager stores their
+notification; callers should use a context deadline to bound that wait. Blocked
+caller goroutines still retain their own arguments, so applications should also
+bound producer concurrency.
+
+```go
+manager, err := notify.NewManager(receivers, logger,
+    notify.WithQueueCapacity(128),
+    notify.WithWorkers(4),
+    notify.WithOnComplete(func(result notify.Completion) {
+        // QueueID, NotificationID, Err; nil Err means delivery succeeded.
+        // Record metrics or an application-owned delivery outcome here.
+    }),
+)
+```
+
+Completion callbacks run on workers and must be concurrency-safe and return
+promptly. Do not enqueue into the same manager or wait for its shutdown from a
+callback. Completion includes delivery failures and unresolved routing. The queue
+is in-memory: callbacks do not make it durable across process crashes.

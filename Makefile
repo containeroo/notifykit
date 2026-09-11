@@ -43,11 +43,11 @@ vet: ## Run go vet against code.
 
 .PHONY: test
 test: fmt vet ## Run unit tests.
-	go test -covermode=atomic -count=1 -parallel=4 -timeout=5m ./...
+	go test -race -covermode=atomic -count=1 -parallel=4 -timeout=5m ./...
 
 .PHONY: cover
 cover: ## Display test coverage
-	go test -coverprofile=coverage.out -covermode=atomic -count=1 -parallel=4 -timeout=5m ./...
+	go test -race -coverprofile=coverage.out -covermode=atomic -count=1 -parallel=4 -timeout=5m ./...
 	go tool cover -html=coverage.out
 
 .PHONY: clean

@@ -2,16 +2,19 @@ package notify
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 )
 
 // dispatcher dequeues notifications and delivers them.
 type dispatcher struct {
-	store     *store
-	mailbox   <-chan string
-	delivery  delivery
-	receivers Receivers
-	logger    *slog.Logger
+	store      *store
+	mailbox    <-chan string
+	delivery   delivery
+	receivers  Receivers
+	logger     *slog.Logger
+	onDequeue  func()
+	onComplete func(Completion)
 }
 
 // newDispatcher constructs a dispatcher from dependencies prepared by NewManager.
@@ -54,15 +57,26 @@ func (d *dispatcher) dispatch(ctx context.Context, queueID string) {
 		return
 	}
 	d.store.delete(queueID)
+	if d.onDequeue != nil {
+		d.onDequeue()
+	}
+	var outcome error
+	defer func() {
+		if d.onComplete != nil {
+			d.onComplete(Completion{QueueID: queueID, NotificationID: n.ID(), Err: outcome})
+		}
+	}()
 
 	receivers := d.resolveReceivers(receiverIDs(n))
 	if len(receivers) == 0 {
+		outcome = errors.New("no receivers resolved")
 		d.logger.Warn("no receivers resolved", "queueID", queueID, "notificationID", n.ID())
 		return
 	}
 
 	payload := Payload{Notification: n}
 	if err := d.delivery.dispatch(ctx, payload, receivers); err != nil {
+		outcome = err
 		d.logger.Error("notification delivery failed", "queueID", queueID, "notificationID", n.ID(), "error", err)
 		return
 	}

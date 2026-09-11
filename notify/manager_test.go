@@ -138,8 +138,8 @@ func TestManagerReceivers(t *testing.T) {
 		t.Parallel()
 
 		manager, err := NewManager(Receivers{
-			"z": {Name: "z"},
-			"a": {Name: "a"},
+			"z": {Name: "z", Targets: []Target{&testTarget{}}},
+			"a": {Name: "a", Targets: []Target{&testTarget{}}},
 		}, testLogger())
 		require.NoError(t, err)
 
@@ -153,7 +153,7 @@ func TestManagerReceivers(t *testing.T) {
 		t.Parallel()
 
 		manager, err := NewManager(Receivers{
-			"ops": {Name: "ops"},
+			"ops": {Name: "ops", Targets: []Target{&testTarget{}}},
 			"nil": nil,
 		}, testLogger())
 		require.NoError(t, err)

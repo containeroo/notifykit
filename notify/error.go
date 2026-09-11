@@ -1,6 +1,9 @@
 package notify
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 // permanentError marks an error as non-retryable for built-in retry policies.
 type permanentError struct {
@@ -62,3 +65,19 @@ func IsTransport(err error) bool {
 	var transport transportError
 	return errors.As(err, &transport)
 }
+
+// DeliveryError identifies a failed target within its receiver. TargetIndex is zero-based.
+// Result may contain sensitive response data and is never included in Error().
+type DeliveryError struct {
+	ReceiverID  ReceiverID
+	TargetType  string
+	TargetIndex int
+	Attempts    int
+	Result      DeliveryResult
+	Err         error
+}
+
+func (e *DeliveryError) Error() string {
+	return fmt.Sprintf("receiver %q target %s[%d] failed after %d attempts: %v", e.ReceiverID, e.TargetType, e.TargetIndex, e.Attempts, e.Err)
+}
+func (e *DeliveryError) Unwrap() error { return e.Err }

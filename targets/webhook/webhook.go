@@ -148,6 +148,7 @@ func New(opts ...Option) *Target {
 // Additional options are applied after the initial target value, then defaults
 // are filled in the same way as New.
 func NewFromTarget(target Target, opts ...Option) *Target {
+	target.Headers = maps.Clone(target.Headers)
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&target)

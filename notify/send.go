@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
+	"slices"
+	"strings"
 )
 
 // Send synchronously delivers notification to the configured receivers.
@@ -56,6 +59,7 @@ func normalizeReceivers(receivers Receivers) Receivers {
 		if receiver.Name == "" {
 			normalized.Name = string(id)
 		}
+		normalized.CustomData = maps.Clone(receiver.CustomData)
 		normalized.Targets = append([]Target(nil), receiver.Targets...)
 		out[id] = &normalized
 	}
@@ -65,6 +69,9 @@ func normalizeReceivers(receivers Receivers) Receivers {
 // validateReceivers validates receiver configuration at the public API boundary.
 func validateReceivers(receivers Receivers) error {
 	for id, receiver := range receivers {
+		if len(receiver.Targets) == 0 {
+			return fmt.Errorf("receiver %q has no targets", id)
+		}
 		for _, target := range receiver.Targets {
 			if target == nil {
 				return fmt.Errorf("receiver %q target is nil", id)
@@ -89,11 +96,17 @@ func resolveReceivers(receivers Receivers, ids []ReceiverID, logger *slog.Logger
 		for _, receiver := range receivers {
 			out = append(out, receiver)
 		}
+		slices.SortFunc(out, func(a, b *Receiver) int { return strings.Compare(string(a.ID), string(b.ID)) })
 		return out
 	}
 
 	out := make([]*Receiver, 0, len(ids))
+	seen := make(map[ReceiverID]bool, len(ids))
 	for _, id := range ids {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
 		receiver, ok := receivers[id]
 		if !ok {
 			logger.Warn("receiver not found", "receiverID", id)

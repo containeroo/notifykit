@@ -142,6 +142,7 @@ func TestTargetSendResult(t *testing.T) {
 		defer stop()
 
 		target := &Target{
+			TLSMode:     TLSPlaintext,
 			Host:        host,
 			Port:        port,
 			From:        "from@example.com",
@@ -255,7 +256,7 @@ func TestSendSMTP(t *testing.T) {
 	t.Run("returns dial error", func(t *testing.T) {
 		t.Parallel()
 
-		target := Target{
+		target := Target{TLSMode: TLSPlaintext,
 			Host:        "127.0.0.1",
 			Port:        1,
 			From:        "from@example.com",
@@ -272,7 +273,7 @@ func TestSendSMTP(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		target := Target{
+		target := Target{TLSMode: TLSPlaintext,
 			Host:        "127.0.0.1",
 			Port:        1,
 			From:        "from@example.com",
@@ -290,7 +291,7 @@ func TestSendSMTP(t *testing.T) {
 		host, port, messages, stop := startSMTPServer(t)
 		defer stop()
 
-		target := Target{
+		target := Target{TLSMode: TLSPlaintext,
 			Host:        host,
 			Port:        port,
 			From:        "from@example.com",
@@ -649,6 +650,7 @@ func validTarget(t *testing.T) *Target {
 	t.Helper()
 	return New(
 		WithHost("127.0.0.1"),
+		WithTLSMode(TLSPlaintext),
 		WithPort(1),
 		WithFrom("from@example.com"),
 		WithTo("to@example.com"),

@@ -18,11 +18,28 @@ import (
 	"github.com/containeroo/notifykit/templates"
 )
 
+// TLSMode selects how SMTP traffic is encrypted.
+type TLSMode string
+
+const (
+	// TLSRequired requires STARTTLS and fails before sending if unavailable.
+	TLSRequired TLSMode = "starttls"
+	// TLSImplicit establishes TLS before the SMTP greeting (usually port 465).
+	TLSImplicit TLSMode = "implicit"
+	// TLSPlaintext explicitly disables TLS, for local or otherwise secured relays.
+	TLSPlaintext TLSMode = "plaintext"
+)
+
+// WithTLSMode configures SMTP encryption. The default is TLSRequired.
+func WithTLSMode(mode TLSMode) Option { return func(t *Target) { t.TLSMode = mode } }
+
 // Option configures an email target.
 type Option func(*Target)
 
 // Target delivers notifications via SMTP.
 type Target struct {
+	// TLSMode defaults to TLSRequired.
+	TLSMode TLSMode
 	// Name is an optional human-readable target name used in logs.
 	Name string
 
@@ -72,7 +89,7 @@ type Target struct {
 	DialTimeout time.Duration
 
 	// Template renders the HTML email body.
-	Template *templates.Template
+	Template templates.Renderer
 
 	// SubjectTmpl renders the email subject.
 	SubjectTmpl *templates.StringTemplate
@@ -106,6 +123,10 @@ func New(opts ...Option) *Target {
 // Additional options are applied after the initial target value, then defaults
 // are filled in the same way as New.
 func NewFromTarget(target Target, opts ...Option) *Target {
+	target.Headers = maps.Clone(target.Headers)
+	target.To = append([]string(nil), target.To...)
+	target.CC = append([]string(nil), target.CC...)
+	target.BCC = append([]string(nil), target.BCC...)
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&target)
@@ -116,8 +137,15 @@ func NewFromTarget(target Target, opts ...Option) *Target {
 }
 
 func applyDefaults(target *Target) {
+	if target.TLSMode == "" {
+		target.TLSMode = TLSRequired
+	}
 	if target.Port == 0 {
-		target.Port = 587
+		if target.TLSMode == TLSImplicit {
+			target.Port = 465
+		} else {
+			target.Port = 587
+		}
 	}
 	if target.DialTimeout == 0 {
 		target.DialTimeout = 10 * time.Second
@@ -199,7 +227,7 @@ func WithDialTimeout(timeout time.Duration) Option {
 }
 
 // WithTemplate configures the HTML email body template.
-func WithTemplate(tmpl *templates.Template) Option {
+func WithTemplate(tmpl templates.Renderer) Option {
 	return func(target *Target) { target.Template = tmpl }
 }
 
@@ -305,6 +333,13 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) error {
 		return err
 	}
 	defer conn.Close() // nolint:errcheck
+	if target.TLSMode == TLSImplicit {
+		secured := tls.Client(conn, smtpTLSConfig(target))
+		if err := secured.HandshakeContext(ctx); err != nil {
+			return err
+		}
+		conn = secured
+	}
 
 	stopContextClose := closeConnOnContextDone(ctx, conn)
 	defer stopContextClose()
@@ -318,7 +353,10 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if ok, _ := client.Extension("STARTTLS"); ok {
+	if target.TLSMode != TLSPlaintext && target.TLSMode != TLSImplicit {
+		if ok, _ := client.Extension("STARTTLS"); !ok {
+			return errors.New("SMTP server does not support required STARTTLS")
+		}
 		if err := client.StartTLS(smtpTLSConfig(target)); err != nil {
 			return err
 		}
@@ -351,6 +389,14 @@ func closeConnOnContextDone(ctx context.Context, conn net.Conn) func() {
 
 // validateSMTPConfig reports missing or invalid SMTP delivery settings.
 func validateSMTPConfig(target Target) error {
+	switch target.TLSMode {
+	case "", TLSRequired, TLSImplicit, TLSPlaintext:
+	default:
+		return errors.New("invalid SMTP TLS mode")
+	}
+	if target.TLSMode == TLSPlaintext && (target.User != "" || target.Pass != "") {
+		return errors.New("SMTP credentials require TLS")
+	}
 	if strings.TrimSpace(target.Host) == "" {
 		return errors.New("email host is required")
 	}

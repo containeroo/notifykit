@@ -22,6 +22,7 @@ type Manager struct {
 	receivers  Receivers
 
 	workers int
+	slots   chan struct{}
 
 	mu      sync.Mutex
 	started bool
@@ -30,7 +31,30 @@ type Manager struct {
 type ManagerOption func(*managerConfig)
 
 type managerConfig struct {
-	workers int
+	workers    int
+	capacity   int
+	onComplete func(Completion)
+}
+
+// Completion reports the final outcome of one queued notification.
+// Err can be inspected with errors.As for DeliveryError. Nil means delivery succeeded.
+type Completion struct {
+	QueueID        string
+	NotificationID string
+	Err            error
+}
+
+// WithOnComplete installs a callback invoked once after each queued delivery.
+// It runs synchronously on a worker; it must be concurrency-safe, return promptly,
+// and must not wait for manager shutdown or enqueue into the same manager.
+func WithOnComplete(fn func(Completion)) ManagerOption {
+	return func(c *managerConfig) { c.onComplete = fn }
+}
+
+// WithQueueCapacity bounds admitted queued notifications (excluding active deliveries).
+// Values below one are rejected by NewManager. The default is 128.
+func WithQueueCapacity(capacity int) ManagerOption {
+	return func(c *managerConfig) { c.capacity = capacity }
 }
 
 // WithWorkers configures how many queued notifications may be processed concurrently.
@@ -56,7 +80,8 @@ func WithWorkers(workers int) ManagerOption {
 // logger is nil, a discard logger is used.
 func NewManager(receivers Receivers, logger *slog.Logger, opts ...ManagerOption) (*Manager, error) {
 	cfg := managerConfig{
-		workers: 1,
+		workers:  1,
+		capacity: 128,
 	}
 
 	for _, opt := range opts {
@@ -65,6 +90,9 @@ func NewManager(receivers Receivers, logger *slog.Logger, opts ...ManagerOption)
 		}
 	}
 
+	if cfg.capacity < 1 {
+		return nil, errors.New("queue capacity must be greater than zero")
+	}
 	if cfg.workers <= 0 {
 		return nil, errors.New("workers must be greater than zero")
 	}
@@ -79,16 +107,20 @@ func NewManager(receivers Receivers, logger *slog.Logger, opts ...ManagerOption)
 	}
 
 	store := newStore()
-	mailbox := make(chan string, 128)
+	mailbox := make(chan string, cfg.capacity)
 	delivery := newDelivery(logger)
 	dispatcher := newDispatcher(store, mailbox, delivery, receivers, logger)
 
+	slots := make(chan struct{}, cfg.capacity)
+	dispatcher.onDequeue = func() { <-slots }
+	dispatcher.onComplete = cfg.onComplete
 	return &Manager{
 		store:      store,
 		mailbox:    mailbox,
 		dispatcher: dispatcher,
 		receivers:  receivers,
 		workers:    cfg.workers,
+		slots:      slots,
 	}, nil
 }
 
@@ -111,6 +143,11 @@ func (m *Manager) Enqueue(ctx context.Context, n Notification) (string, error) {
 		return "", err
 	}
 
+	select {
+	case m.slots <- struct{}{}:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 	m.store.put(id, n)
 
 	select {
@@ -118,18 +155,20 @@ func (m *Manager) Enqueue(ctx context.Context, n Notification) (string, error) {
 		return id, nil
 	case <-ctx.Done():
 		m.store.delete(id)
+		<-m.slots
 		return "", ctx.Err()
 	}
 }
 
-// Receivers returns configured receivers sorted by ID.
+// Receivers returns snapshots sorted by ID. Structs, target slices and top-level
+// CustomData maps are copied; targets and nested custom values remain shared.
 func (m *Manager) Receivers() []*Receiver {
 	if m == nil {
 		return nil
 	}
 
 	receivers := make([]*Receiver, 0, len(m.receivers))
-	for _, receiver := range m.receivers {
+	for _, receiver := range normalizeReceivers(m.receivers) {
 		receivers = append(receivers, receiver)
 	}
 

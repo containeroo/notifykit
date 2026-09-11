@@ -22,6 +22,8 @@ type Receivers map[ReceiverID]*Receiver
 type RetryPolicy func(result DeliveryResult, err error) bool
 
 // Notification describes one notification and its template data.
+// Enqueued notifications must remain immutable through completion. Data must
+// support concurrent calls when notifications are reused across deliveries.
 //
 // A notification may optionally implement ReceiverRouter to select specific
 // receivers. Notifications that do not implement ReceiverRouter are sent to all
@@ -44,6 +46,8 @@ type delivery interface {
 }
 
 // Target delivers a notification payload to one destination.
+// Target configuration must remain immutable during delivery; implementations
+// used by multiple workers must support concurrent Send calls.
 type Target interface {
 	Send(ctx context.Context, payload Payload) (DeliveryResult, error)
 	Type() string
@@ -84,6 +88,7 @@ type Payload struct {
 	Receiver string
 
 	// CustomData contains receiver-scoped custom template data.
+	// Top-level maps are copied; nested values must remain immutable.
 	CustomData map[string]any
 }
 
@@ -122,6 +127,7 @@ type Receiver struct {
 	Targets []Target
 
 	// CustomData contains receiver-scoped custom template data.
+	// Top-level maps are copied; nested values must remain immutable.
 	CustomData map[string]any
 }
 
