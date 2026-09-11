@@ -2,8 +2,6 @@ package notify
 
 import (
 	"context"
-	"errors"
-	"io"
 	"log/slog"
 )
 
@@ -16,49 +14,25 @@ type dispatcher struct {
 	logger    *slog.Logger
 }
 
-// newDispatcher constructs a dispatcher for an existing store, mailbox,
-// delivery engine, and receiver map.
-//
-// Most applications should use NewManager for queued asynchronous delivery or
-// Send for simple synchronous delivery. It is kept internal so Notifykit exposes
-// only the higher-level Send and Manager APIs.
+// newDispatcher constructs a dispatcher from dependencies prepared by NewManager.
 func newDispatcher(
 	store *store,
 	mailbox <-chan string,
 	delivery delivery,
 	receivers Receivers,
 	logger *slog.Logger,
-) (*dispatcher, error) {
-	if store == nil {
-		return nil, errors.New("store is required")
-	}
-	if mailbox == nil {
-		return nil, errors.New("mailbox is required")
-	}
-	if delivery == nil {
-		return nil, errors.New("delivery is required")
-	}
-
-	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	}
-	receivers = normalizeReceivers(receivers)
-
+) *dispatcher {
 	return &dispatcher{
 		store:     store,
 		mailbox:   mailbox,
 		delivery:  delivery,
 		receivers: receivers,
 		logger:    logger,
-	}, nil
+	}
 }
 
 // start processes queued notifications until ctx is canceled or the mailbox closes.
 func (d *dispatcher) start(ctx context.Context) {
-	if d == nil {
-		return
-	}
-
 	for {
 		select {
 		case <-ctx.Done():

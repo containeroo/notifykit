@@ -256,16 +256,29 @@ func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify
 	if t == nil {
 		return notify.DeliveryResult{}, notify.Permanent(errors.New("webhook target is nil"))
 	}
-	body, err := t.Render(payload)
+	if ctx == nil {
+		return notify.DeliveryResult{}, notify.Permanent(errors.New("context is nil"))
+	}
+
+	target := *t
+	applyDefaults(&target)
+
+	body, err := target.Render(payload)
 	if err != nil {
 		return notify.DeliveryResult{}, notify.Permanent(err)
 	}
+	if err := validateHeaders(target.Headers); err != nil {
+		return notify.DeliveryResult{}, notify.Permanent(err)
+	}
+	if err := validateEndpoint(target.Method, target.URL); err != nil {
+		return notify.DeliveryResult{}, notify.Permanent(err)
+	}
 
-	status, statusCode, responseBody, retryAfter, err := t.post(ctx, body)
+	status, statusCode, responseBody, retryAfter, err := target.post(ctx, body)
 	result := notify.DeliveryResult{
 		Status:     status,
 		StatusCode: statusCode,
-		Response:   truncateBody(responseBody, t.ResponseBodyLimit),
+		Response:   truncateBody(responseBody, target.ResponseBodyLimit),
 		RetryAfter: retryAfter,
 	}
 	if err != nil {
@@ -279,13 +292,17 @@ func (t *Target) Validate(payload notify.Payload) error {
 	if t == nil {
 		return errors.New("webhook target is nil")
 	}
-	if _, err := t.Render(payload); err != nil {
+
+	target := *t
+	applyDefaults(&target)
+
+	if _, err := target.Render(payload); err != nil {
 		return err
 	}
-	if err := validateHeaders(t.Headers); err != nil {
+	if err := validateHeaders(target.Headers); err != nil {
 		return err
 	}
-	return validateEndpoint(t.Method, t.URL)
+	return validateEndpoint(target.Method, target.URL)
 }
 
 // Render renders the configured title and body templates.
@@ -316,26 +333,10 @@ func (t *Target) Render(payload notify.Payload) ([]byte, error) {
 	return body, nil
 }
 
-// post sends the rendered body to the configured webhook endpoint.
+// post sends a validated rendered body to the configured webhook endpoint.
 func (t *Target) post(ctx context.Context, body []byte) (status string, statusCode int, response string, retryAfter time.Duration, err error) {
-	if err := validateHeaders(t.Headers); err != nil {
-		return "", 0, "", 0, notify.Permanent(err)
-	}
-
-	client := t.Client
-	if client == nil {
-		client = NewClient(10 * time.Second)
-	}
-	method := t.Method
-	if method == "" {
-		method = http.MethodPost
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, t.URL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, t.Method, t.URL, bytes.NewReader(body))
 	if err != nil {
-		return "", 0, "", 0, notify.Permanent(err)
-	}
-	if err := validateRequestURL(req); err != nil {
 		return "", 0, "", 0, notify.Permanent(err)
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
@@ -344,7 +345,7 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 	}
 
 	start := time.Now()
-	resp, err := client.Do(req)
+	resp, err := t.Client.Do(req)
 	duration := time.Since(start)
 	if err != nil {
 		t.Logger.Error("webhook request failed", "duration", duration.Round(time.Millisecond).String(), "error", err)
@@ -371,10 +372,6 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 
 // validateEndpoint validates the HTTP method and endpoint URL without sending a request.
 func validateEndpoint(method, endpoint string) error {
-	if method == "" {
-		method = http.MethodPost
-	}
-
 	request, err := http.NewRequest(method, endpoint, http.NoBody)
 	if err != nil {
 		return err
@@ -384,10 +381,6 @@ func validateEndpoint(method, endpoint string) error {
 
 // validateRequestURL reports whether request targets an absolute HTTP(S) endpoint.
 func validateRequestURL(request *http.Request) error {
-	if request == nil || request.URL == nil {
-		return errors.New("webhook URL is required")
-	}
-
 	switch strings.ToLower(request.URL.Scheme) {
 	case "http", "https":
 	default:

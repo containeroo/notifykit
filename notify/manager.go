@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"io"
 	"log/slog"
 	"slices"
 	"sync"
@@ -68,15 +69,19 @@ func NewManager(receivers Receivers, logger *slog.Logger, opts ...ManagerOption)
 		return nil, errors.New("workers must be greater than zero")
 	}
 
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
+
 	receivers = normalizeReceivers(receivers)
+	if err := validateReceivers(receivers); err != nil {
+		return nil, err
+	}
+
 	store := newStore()
 	mailbox := make(chan string, 128)
 	delivery := newDelivery(logger)
-
-	dispatcher, err := newDispatcher(store, mailbox, delivery, receivers, logger)
-	if err != nil {
-		return nil, err
-	}
+	dispatcher := newDispatcher(store, mailbox, delivery, receivers, logger)
 
 	return &Manager{
 		store:      store,
@@ -101,13 +106,6 @@ func (m *Manager) Enqueue(ctx context.Context, n Notification) (string, error) {
 	if n == nil {
 		return "", errors.New("notification is nil")
 	}
-	if m.store == nil {
-		return "", errors.New("store is nil")
-	}
-	if m.mailbox == nil {
-		return "", errors.New("mailbox is nil")
-	}
-
 	id, err := nextQueueID()
 	if err != nil {
 		return "", err
@@ -132,9 +130,6 @@ func (m *Manager) Receivers() []*Receiver {
 
 	receivers := make([]*Receiver, 0, len(m.receivers))
 	for _, receiver := range m.receivers {
-		if receiver == nil {
-			continue
-		}
 		receivers = append(receivers, receiver)
 	}
 
@@ -160,10 +155,6 @@ func (m *Manager) Start(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if m.dispatcher == nil {
-		return errors.New("dispatcher is nil")
-	}
-
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

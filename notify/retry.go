@@ -2,8 +2,6 @@ package notify
 
 import (
 	"context"
-	"errors"
-	"io"
 	"log/slog"
 	"math/rand/v2"
 	"time"
@@ -16,16 +14,6 @@ func withRetry(
 	cfg RetryConfig,
 	fn func() (DeliveryResult, error),
 ) (DeliveryResult, int, error) {
-	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	}
-	if ctx == nil {
-		return DeliveryResult{}, 0, errors.New("context is nil")
-	}
-	if fn == nil {
-		return DeliveryResult{}, 0, errors.New("retry function is nil")
-	}
-
 	maxAttempts := max(cfg.Count+1, 1)
 	policy := cfg.Policy
 	var (

@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 )
@@ -15,8 +16,8 @@ import (
 // keys, and nil or empty receiver IDs send to all configured receivers.
 //
 // If logger is nil, a discard logger is used. Send returns an error when the
-// context, notification, delivery, or resolved receiver set is invalid, or when
-// one or more targets fail.
+// context, notification, receiver configuration, or resolved receiver set is
+// invalid, or when one or more targets fail.
 func Send(ctx context.Context, notification Notification, receivers Receivers, logger *slog.Logger) error {
 	if ctx == nil {
 		return errors.New("context is nil")
@@ -29,6 +30,10 @@ func Send(ctx context.Context, notification Notification, receivers Receivers, l
 	}
 
 	receivers = normalizeReceivers(receivers)
+	if err := validateReceivers(receivers); err != nil {
+		return err
+	}
+
 	resolved := resolveReceivers(receivers, receiverIDs(notification), logger)
 	if len(resolved) == 0 {
 		return errors.New("no receivers resolved")
@@ -37,15 +42,11 @@ func Send(ctx context.Context, notification Notification, receivers Receivers, l
 	return newDelivery(logger).dispatch(ctx, Payload{Notification: notification}, resolved)
 }
 
-// normalizeReceivers applies receiver ID and display-name defaults.
+// normalizeReceivers applies receiver ID and display-name defaults and drops nil entries.
 func normalizeReceivers(receivers Receivers) Receivers {
-	if receivers == nil {
-		return Receivers{}
-	}
 	out := make(Receivers, len(receivers))
 	for id, receiver := range receivers {
 		if receiver == nil {
-			out[id] = nil
 			continue
 		}
 		normalized := *receiver
@@ -55,16 +56,26 @@ func normalizeReceivers(receivers Receivers) Receivers {
 		if receiver.Name == "" {
 			normalized.Name = string(id)
 		}
+		normalized.Targets = append([]Target(nil), receiver.Targets...)
 		out[id] = &normalized
 	}
 	return out
 }
 
+// validateReceivers validates receiver configuration at the public API boundary.
+func validateReceivers(receivers Receivers) error {
+	for id, receiver := range receivers {
+		for _, target := range receiver.Targets {
+			if target == nil {
+				return fmt.Errorf("receiver %q target is nil", id)
+			}
+		}
+	}
+	return nil
+}
+
 // receiverIDs returns the receiver IDs requested by notification.
 func receiverIDs(notification Notification) []ReceiverID {
-	if notification == nil {
-		return nil
-	}
 	if routed, ok := notification.(ReceiverRouter); ok {
 		return routed.ReceiverIDs()
 	}
@@ -76,9 +87,6 @@ func resolveReceivers(receivers Receivers, ids []ReceiverID, logger *slog.Logger
 	if len(ids) == 0 {
 		out := make([]*Receiver, 0, len(receivers))
 		for _, receiver := range receivers {
-			if receiver == nil {
-				continue
-			}
 			out = append(out, receiver)
 		}
 		return out
@@ -89,10 +97,6 @@ func resolveReceivers(receivers Receivers, ids []ReceiverID, logger *slog.Logger
 		receiver, ok := receivers[id]
 		if !ok {
 			logger.Warn("receiver not found", "receiverID", id)
-			continue
-		}
-		if receiver == nil {
-			logger.Warn("receiver is nil", "receiverID", id)
 			continue
 		}
 		out = append(out, receiver)

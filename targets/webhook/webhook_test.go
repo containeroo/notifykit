@@ -138,6 +138,17 @@ func TestTargetSendResult(t *testing.T) {
 		assert.Empty(t, result)
 	})
 
+	t.Run("nil context errors", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		result, err := target.SendResult(nil, payload())
+
+		require.Error(t, err)
+		assert.True(t, notify.IsPermanent(err))
+		assert.Empty(t, result)
+	})
+
 	t.Run("returns render error", func(t *testing.T) {
 		t.Parallel()
 
@@ -200,6 +211,30 @@ func TestTargetSendResult(t *testing.T) {
 		assert.True(t, notify.IsTransport(err))
 		assert.False(t, notify.IsPermanent(err))
 		assert.True(t, notify.DefaultRetryPolicy(result, err))
+	})
+
+	t.Run("applies delivery defaults at public boundary", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			assert.Equal(t, http.MethodPost, r.Method)
+			_, _ = w.Write([]byte("ok"))
+		}))
+		defer server.Close()
+
+		target := &Target{
+			URL:       server.URL,
+			Template:  bodyTemplate(t, `{"text":{{ .Title | json }}}`),
+			TitleTmpl: titleTemplate(t),
+		}
+
+		result, err := target.SendResult(context.Background(), payload())
+
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, result.StatusCode)
+		assert.Nil(t, target.Client)
+		assert.Nil(t, target.Logger)
+		assert.Empty(t, target.Method)
 	})
 
 	t.Run("returns response details on success", func(t *testing.T) {
@@ -355,7 +390,7 @@ func TestTargetRender(t *testing.T) {
 	})
 }
 
-// TestTargetPost tests expected behavior.
+// TestTargetPost tests expected behavior with prepared target dependencies.
 func TestTargetPost(t *testing.T) {
 	t.Parallel()
 
@@ -394,40 +429,6 @@ func TestTargetPost(t *testing.T) {
 		)
 		_, _, _, _, err := target.post(context.Background(), []byte(`{"ok":true}`))
 		require.NoError(t, err)
-	})
-
-	t.Run("returns header validation error", func(t *testing.T) {
-		t.Parallel()
-
-		target := New(
-			WithURL("http://127.0.0.1/unused"),
-			WithHeader("X-Test:Bad", "value"),
-		)
-		_, _, _, _, err := target.post(context.Background(), []byte("{}"))
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "contains invalid character")
-	})
-
-	t.Run("returns request creation error as permanent", func(t *testing.T) {
-		t.Parallel()
-
-		target := New(WithURL("://bad-url"))
-		_, _, _, _, err := target.post(context.Background(), []byte("{}"))
-		require.Error(t, err)
-		assert.True(t, notify.IsPermanent(err))
-		assert.False(t, notify.IsTransport(err))
-	})
-
-	t.Run("returns unsupported endpoint as permanent", func(t *testing.T) {
-		t.Parallel()
-
-		target := New(WithURL("ftp://example.test/hook"))
-		_, _, _, _, err := target.post(context.Background(), []byte("{}"))
-		require.Error(t, err)
-		assert.True(t, notify.IsPermanent(err))
-		assert.False(t, notify.IsTransport(err))
-		assert.Contains(t, err.Error(), "must use http or https")
 	})
 }
 

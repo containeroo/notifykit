@@ -544,13 +544,6 @@ func TestExecute(t *testing.T) {
 		assert.Equal(t, "hello", out)
 	})
 
-	t.Run("requires template", func(t *testing.T) {
-		t.Parallel()
-
-		out, err := execute(nil, nil)
-		require.Error(t, err)
-		assert.Empty(t, out)
-	})
 }
 
 // TestTemplateRender tests expected behavior.

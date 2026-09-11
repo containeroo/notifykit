@@ -46,6 +46,16 @@ func TestNewManager(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 1, manager.workers)
 	})
+
+	t.Run("rejects nil target at boundary", func(t *testing.T) {
+		t.Parallel()
+
+		manager, err := NewManager(Receivers{"ops": {Targets: []Target{nil}}}, testLogger())
+
+		require.Error(t, err)
+		assert.Nil(t, manager)
+		assert.Contains(t, err.Error(), `receiver "ops" target is nil`)
+	})
 }
 
 // TestManagerEnqueue tests expected behavior.

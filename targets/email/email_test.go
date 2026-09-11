@@ -104,6 +104,16 @@ func TestTargetSendResult(t *testing.T) {
 		assert.Empty(t, result)
 	})
 
+	t.Run("nil context errors", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		result, err := target.SendResult(nil, payload())
+
+		require.Error(t, err)
+		assert.Empty(t, result)
+	})
+
 	t.Run("returns failed status on render error", func(t *testing.T) {
 		t.Parallel()
 
@@ -123,6 +133,28 @@ func TestTargetSendResult(t *testing.T) {
 
 		require.Error(t, err)
 		assert.Equal(t, "failed", result.Status)
+	})
+
+	t.Run("applies delivery defaults at public boundary", func(t *testing.T) {
+		t.Parallel()
+
+		host, port, _, stop := startSMTPServer(t)
+		defer stop()
+
+		target := &Target{
+			Host:        host,
+			Port:        port,
+			From:        "from@example.com",
+			To:          []string{"to@example.com"},
+			Template:    bodyTemplate(t, `hello {{ .Subject }}`),
+			SubjectTmpl: subjectTemplate(t),
+		}
+
+		result, err := target.SendResult(context.Background(), payload())
+
+		require.NoError(t, err)
+		assert.Equal(t, "sent", result.Status)
+		assert.Equal(t, time.Duration(0), target.DialTimeout)
 	})
 
 	t.Run("returns sent status", func(t *testing.T) {
@@ -216,14 +248,22 @@ func TestTargetRender(t *testing.T) {
 	})
 }
 
-// TestSendSMTP tests expected behavior.
+// TestSendSMTP tests expected behavior with validated target configuration.
 func TestSendSMTP(t *testing.T) {
 	t.Parallel()
 
 	t.Run("returns dial error", func(t *testing.T) {
 		t.Parallel()
 
-		err := sendSMTP(context.Background(), Target{Host: "127.0.0.1", Port: 1}, "subject", "body")
+		target := Target{
+			Host:        "127.0.0.1",
+			Port:        1,
+			From:        "from@example.com",
+			To:          []string{"to@example.com"},
+			DialTimeout: time.Second,
+		}
+
+		err := sendSMTP(context.Background(), target, "subject", "body")
 		require.Error(t, err)
 	})
 
@@ -232,24 +272,16 @@ func TestSendSMTP(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
+		target := Target{
+			Host:        "127.0.0.1",
+			Port:        1,
+			From:        "from@example.com",
+			To:          []string{"to@example.com"},
+			DialTimeout: time.Second,
+		}
 
-		err := sendSMTP(ctx, Target{Host: "127.0.0.1", Port: 1}, "subject", "body")
+		err := sendSMTP(ctx, target, "subject", "body")
 		require.ErrorIs(t, err, context.Canceled)
-	})
-
-	t.Run("returns config error", func(t *testing.T) {
-		t.Parallel()
-
-		err := sendSMTP(context.Background(), Target{
-			Host:    "127.0.0.1",
-			Port:    1,
-			From:    "from@example.com",
-			To:      []string{"to@example.com"},
-			Headers: map[string]string{"Bcc": "attacker@example.com"},
-		}, "subject", "body")
-
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), `email header "Bcc" is reserved`)
 	})
 
 	t.Run("sends message", func(t *testing.T) {
@@ -258,7 +290,15 @@ func TestSendSMTP(t *testing.T) {
 		host, port, messages, stop := startSMTPServer(t)
 		defer stop()
 
-		err := sendSMTP(context.Background(), Target{Host: host, Port: port, From: "from@example.com", To: []string{"to@example.com"}}, "subject", "body")
+		target := Target{
+			Host:        host,
+			Port:        port,
+			From:        "from@example.com",
+			To:          []string{"to@example.com"},
+			DialTimeout: time.Second,
+		}
+
+		err := sendSMTP(context.Background(), target, "subject", "body")
 		require.NoError(t, err)
 		assert.Contains(t, <-messages, "Subject: subject")
 	})
@@ -281,7 +321,14 @@ func TestSMTPAuth(t *testing.T) {
 	t.Run("returns nil without credentials", func(t *testing.T) {
 		t.Parallel()
 
-		err := smtpAuth(nil, Target{})
+		host, port, _, stop := startSMTPServer(t)
+		defer stop()
+
+		client, err := smtp.Dial(net.JoinHostPort(host, strconv.Itoa(port)))
+		require.NoError(t, err)
+		defer client.Close() // nolint:errcheck
+
+		err = smtpAuth(client, Target{})
 		require.NoError(t, err)
 	})
 

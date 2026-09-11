@@ -328,9 +328,6 @@ func LoadStringFromFS(tmplFS fs.FS, path string, opts ...Option) (*StringTemplat
 
 // execute renders tmpl with data and returns the rendered string.
 func execute(tmpl *template.Template, data any) (string, error) {
-	if tmpl == nil {
-		return "", errors.New("template is nil")
-	}
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
 		return "", fmt.Errorf("execute template: %w", err)

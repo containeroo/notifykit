@@ -94,32 +94,16 @@ func TestWithRetry(t *testing.T) {
 	})
 }
 
-// TestWithRetryInternal tests expected behavior.
-func TestWithRetryInternal(t *testing.T) {
+// TestWithRetryFailure tests expected failure behavior.
+func TestWithRetryFailure(t *testing.T) {
 	t.Parallel()
-
-	t.Run("nil context errors", func(t *testing.T) {
-		t.Parallel()
-
-		_, attempts, err := withRetry(nil, testLogger(), RetryConfig{}, func() (DeliveryResult, error) { return DeliveryResult{}, nil })
-		require.Error(t, err)
-		assert.Equal(t, 0, attempts)
-	})
-
-	t.Run("nil function errors", func(t *testing.T) {
-		t.Parallel()
-
-		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{}, nil)
-		require.Error(t, err)
-		assert.Equal(t, 0, attempts)
-	})
 
 	t.Run("returns last error after attempts", func(t *testing.T) {
 		t.Parallel()
 
 		boom := errors.New("boom")
 		calls := 0
-		_, attempts, err := withRetry(context.Background(), nil, RetryConfig{Count: 2, Policy: RetryOnError}, func() (DeliveryResult, error) {
+		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 2, Policy: RetryOnError}, func() (DeliveryResult, error) {
 			calls++
 			return DeliveryResult{}, boom
 		})

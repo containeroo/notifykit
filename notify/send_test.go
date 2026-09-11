@@ -34,6 +34,20 @@ func TestSend(t *testing.T) {
 		require.Error(t, err)
 	})
 
+	t.Run("rejects nil target at boundary", func(t *testing.T) {
+		t.Parallel()
+
+		err := Send(
+			context.Background(),
+			testNotification{id: "n1"},
+			Receivers{"ops": {Targets: []Target{nil}}},
+			testLogger(),
+		)
+
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), `receiver "ops" target is nil`)
+	})
+
 	t.Run("sends to named receiver", func(t *testing.T) {
 		t.Parallel()
 

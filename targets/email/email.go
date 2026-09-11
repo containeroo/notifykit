@@ -221,14 +221,23 @@ func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify
 	if t == nil {
 		return notify.DeliveryResult{}, errors.New("email target is nil")
 	}
+	if ctx == nil {
+		return notify.DeliveryResult{}, errors.New("context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return notify.DeliveryResult{}, err
+	}
+
+	target := *t
+	applyDefaults(&target)
+
 	start := time.Now()
-	err := contextError(ctx)
-	var message Message
+	message, err := target.Render(payload)
 	if err == nil {
-		message, err = t.Render(payload)
+		err = validateSMTPConfig(target)
 	}
 	if err == nil {
-		err = sendSMTP(ctx, *t, message.Subject, message.Body)
+		err = sendSMTP(ctx, target, message.Subject, message.Body)
 	}
 
 	status := "sent"
@@ -246,10 +255,14 @@ func (t *Target) Validate(payload notify.Payload) error {
 	if t == nil {
 		return errors.New("email target is nil")
 	}
-	if _, err := t.Render(payload); err != nil {
+
+	target := *t
+	applyDefaults(&target)
+
+	if _, err := target.Render(payload); err != nil {
 		return err
 	}
-	return validateSMTPConfig(*t)
+	return validateSMTPConfig(target)
 }
 
 // Render renders the configured subject and body templates.
@@ -281,19 +294,12 @@ type Message struct {
 	Body    string
 }
 
-// sendSMTP sends a rendered email through the configured SMTP server.
+// sendSMTP sends a validated rendered email through the configured SMTP server.
 func sendSMTP(ctx context.Context, target Target, subject, body string) error {
-	if err := contextError(ctx); err != nil {
-		return err
-	}
-	if err := validateSMTPConfig(target); err != nil {
-		return err
-	}
-
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
 	msg := buildEmail(target, subject, body)
 
-	dialer := net.Dialer{Timeout: smtpDialTimeout(target)}
+	dialer := net.Dialer{Timeout: target.DialTimeout}
 	conn, err := dialer.DialContext(ctx, "tcp", addr)
 	if err != nil {
 		return err
@@ -309,7 +315,7 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) error {
 	}
 	defer client.Close() // nolint:errcheck
 
-	if err := contextError(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if ok, _ := client.Extension("STARTTLS"); ok {
@@ -318,32 +324,16 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) error {
 		}
 	}
 
-	if err := contextError(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := smtpAuth(client, target); err != nil {
 		return err
 	}
-	if err := contextError(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
 	}
 	return smtpSend(client, target.From, target.To, target.CC, target.BCC, msg)
-}
-
-// contextError returns the current context error or a nil-context error.
-func contextError(ctx context.Context) error {
-	if ctx == nil {
-		return errors.New("context is nil")
-	}
-	return ctx.Err()
-}
-
-// smtpDialTimeout returns the configured connection timeout.
-func smtpDialTimeout(target Target) time.Duration {
-	if target.DialTimeout <= 0 {
-		return 10 * time.Second
-	}
-	return target.DialTimeout
 }
 
 // closeConnOnContextDone closes conn if ctx is canceled during SMTP operations.
@@ -440,17 +430,11 @@ func smtpAuth(client *smtp.Client, target Target) error {
 	if target.User == "" && target.Pass == "" {
 		return nil
 	}
-	if client == nil {
-		return errors.New("smtp client is nil")
-	}
 	return client.Auth(smtp.PlainAuth("", target.User, target.Pass, target.Host))
 }
 
 // smtpSend writes the message through an initialized SMTP client.
 func smtpSend(client *smtp.Client, from string, to, cc, bcc []string, msg []byte) error {
-	if client == nil {
-		return errors.New("smtp client is nil")
-	}
 	if err := client.Mail(from); err != nil {
 		return err
 	}

@@ -3,7 +3,6 @@ package notify
 import (
 	"context"
 	"errors"
-	"io"
 	"log/slog"
 )
 
@@ -13,20 +12,12 @@ type deliveryEngine struct {
 }
 
 // newDelivery constructs the default receiver delivery engine.
-func newDelivery(logger *slog.Logger) delivery {
-	if logger == nil {
-		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
-	}
-
+func newDelivery(logger *slog.Logger) *deliveryEngine {
 	return &deliveryEngine{logger: logger}
 }
 
 // dispatch sends a notification payload to each receiver target.
 func (d *deliveryEngine) dispatch(ctx context.Context, payload Payload, receivers []*Receiver) error {
-	if d == nil {
-		return errors.New("delivery is nil")
-	}
-
 	var errs []error
 	for _, receiver := range receivers {
 		if err := d.dispatchReceiver(ctx, receiver, payload); err != nil {
@@ -38,17 +29,8 @@ func (d *deliveryEngine) dispatch(ctx context.Context, payload Payload, receiver
 
 // dispatchReceiver sends a payload to every target configured on one receiver.
 func (d *deliveryEngine) dispatchReceiver(ctx context.Context, receiver *Receiver, payload Payload) error {
-	if receiver == nil {
-		return errors.New("receiver is nil")
-	}
-
 	var errs []error
 	for _, target := range receiver.Targets {
-		if target == nil {
-			errs = append(errs, errors.New("target is nil"))
-			continue
-		}
-
 		targetPayload := payload
 		targetPayload.Receiver = receiver.Name
 		targetPayload.CustomData = receiver.CustomData
