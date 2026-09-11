@@ -150,6 +150,6 @@ type RetryConfig struct {
 
 	// Policy decides whether a failed target delivery should be retried.
 	//
-	// A nil policy uses DefaultRetryPolicy.
+	// A nil policy disables retries.
 	Policy RetryPolicy
 }

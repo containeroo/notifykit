@@ -80,6 +80,7 @@ func main() {
 	).WithRetry(notify.RetryConfig{
 		Count:   2,
 		Backoff: time.Second,
+		Policy:  notify.DefaultRetryPolicy,
 	})
 
 	err = notify.SendTo(ctx, Alert{

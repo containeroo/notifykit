@@ -28,9 +28,6 @@ func withRetry(
 
 	maxAttempts := max(cfg.Count+1, 1)
 	policy := cfg.Policy
-	if policy == nil {
-		policy = DefaultRetryPolicy
-	}
 	var (
 		lastResult DeliveryResult
 		lastErr    error
@@ -72,7 +69,7 @@ func withRetry(
 		if ctx.Err() != nil {
 			return lastResult, executed, ctx.Err()
 		}
-		if executed >= maxAttempts || !policy(result, err) {
+		if executed >= maxAttempts || policy == nil || !policy(result, err) {
 			return lastResult, executed, lastErr
 		}
 	}

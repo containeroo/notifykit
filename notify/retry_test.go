@@ -41,11 +41,26 @@ func TestWithRetry(t *testing.T) {
 		assert.Equal(t, 2, calls)
 	})
 
-	t.Run("uses default retry policy", func(t *testing.T) {
+	t.Run("does not retry without policy", func(t *testing.T) {
 		t.Parallel()
 
 		calls := 0
+		boom := errors.New("boom")
 		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 2}, func() (DeliveryResult, error) {
+			calls++
+			return DeliveryResult{StatusCode: 503}, boom
+		})
+
+		require.ErrorIs(t, err, boom)
+		assert.Equal(t, 1, attempts)
+		assert.Equal(t, 1, calls)
+	})
+
+	t.Run("uses default retry policy when configured", func(t *testing.T) {
+		t.Parallel()
+
+		calls := 0
+		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 2, Policy: DefaultRetryPolicy}, func() (DeliveryResult, error) {
 			calls++
 			if calls == 1 {
 				return DeliveryResult{StatusCode: 503}, errors.New("unavailable")
@@ -56,21 +71,6 @@ func TestWithRetry(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 2, attempts)
 		assert.Equal(t, 2, calls)
-	})
-
-	t.Run("default policy stops on generic error", func(t *testing.T) {
-		t.Parallel()
-
-		calls := 0
-		boom := errors.New("boom")
-		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 2}, func() (DeliveryResult, error) {
-			calls++
-			return DeliveryResult{}, boom
-		})
-
-		require.ErrorIs(t, err, boom)
-		assert.Equal(t, 1, attempts)
-		assert.Equal(t, 1, calls)
 	})
 
 	t.Run("uses custom retry policy", func(t *testing.T) {

@@ -68,6 +68,7 @@ func main() {
         WithRetry(notify.RetryConfig{
             Count:   2,
             Backoff: time.Second,
+            Policy:  notify.DefaultRetryPolicy,
         })
 
     err = notify.SendTo(ctx, Alert{
@@ -103,7 +104,7 @@ go run ./examples/multiple
 receiver := notify.NewReceiver("ops", slackTarget, emailTarget).
     WithName("Operations").
     WithCustomData(map[string]any{"channel": "alerts"}).
-    WithRetry(notify.RetryConfig{Count: 2, Backoff: time.Second})
+    WithRetry(notify.RetryConfig{Count: 2, Backoff: time.Second, Policy: notify.DefaultRetryPolicy})
 
 err := notify.SendTo(ctx, alert, receiver)
 ```
@@ -167,6 +168,7 @@ receivers := notify.Receivers{
         Retry: notify.RetryConfig{
             Count:   2, // two retries, three total attempts
             Backoff: time.Second,
+            Policy:  notify.DefaultRetryPolicy,
         },
         CustomData: map[string]any{
             "channel": "alerts",
@@ -183,9 +185,9 @@ err := notify.Send(ctx, alert, receivers, logger)
 
 ### Retry policies
 
-A receiver with retries enabled uses `notify.DefaultRetryPolicy` when `RetryConfig.Policy` is nil. The default is intentionally conservative: it retries classified transport timeouts and network failures, status 408 and 429, and status codes from 500 through 599. Other failures are returned immediately.
+Retries are opt-in: `RetryConfig.Policy == nil` disables retries even when `Count` is greater than zero. Use `notify.DefaultRetryPolicy` explicitly for Notifykit's conservative default, which retries classified transport timeouts and network failures, status 408 and 429, and status codes from 500 through 599. Other failures are returned immediately.
 
-Retry policies are small composable functions. Override the default when a receiver needs different semantics:
+Retry policies are small composable functions. Configure the default directly or compose a custom policy when a receiver needs different semantics:
 
 ```go
 receiver.WithRetry(notify.RetryConfig{
@@ -327,7 +329,7 @@ A receiver groups one or more delivery targets and optional receiver-scoped sett
 receiver := notify.NewReceiver("ops", slackWebhook, emailTarget).
     WithName("Operations").
     WithCustomData(map[string]any{"channel": "alerts"}).
-    WithRetry(notify.RetryConfig{Count: 2, Backoff: time.Second})
+    WithRetry(notify.RetryConfig{Count: 2, Backoff: time.Second, Policy: notify.DefaultRetryPolicy})
 ```
 
 `Receiver.ID` is the routing identifier. `Receiver.Name` is passed into the notification payload as the receiver name. When `ID` or `Name` is empty, Notifykit fills defaults from the receiver map key on internal copies during normalization.
