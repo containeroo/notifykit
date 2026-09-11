@@ -131,4 +131,9 @@ type RetryConfig struct {
 	//
 	// If MaxBackoff is zero or negative, retry waits are not capped.
 	MaxBackoff time.Duration
+
+	// Jitter randomizes each retry wait between zero and the calculated backoff.
+	//
+	// This reduces synchronized retry spikes when many notifications fail at once.
+	Jitter bool
 }

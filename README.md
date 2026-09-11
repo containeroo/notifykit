@@ -125,6 +125,8 @@ func (r *Receiver) WithTargets(targets ...Target) *Receiver
 
 Retry attempts stop immediately when a target returns a permanent error. Built-in webhook targets classify rendering and request-configuration failures plus non-transient HTTP responses as permanent. HTTP `408`, `429`, and `5xx` responses remain retryable. Unclassified target errors remain retryable for backward compatibility. Custom targets can mark a failure as permanent with `notify.Permanent(err)`.
 
+Set `RetryConfig.Jitter` to randomize each retry delay between zero and the exponential backoff. Full jitter is useful when many receivers may fail at the same time because it avoids synchronized retry bursts. `MaxBackoff` is applied before jitter.
+
 ## Target options
 
 Webhook and email targets use functional options for simple construction.
@@ -167,8 +169,10 @@ receivers := notify.Receivers{
     "ops": {
         Name: "Operations",
         Retry: notify.RetryConfig{
-            Count:   2, // two retries, three total attempts
-            Backoff: time.Second,
+            Count:      2, // two retries, three total attempts
+            Backoff:    time.Second,
+            MaxBackoff: 30 * time.Second,
+            Jitter:     true,
         },
         CustomData: map[string]any{
             "channel": "alerts",

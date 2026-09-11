@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math/rand/v2"
 	"time"
 )
 
@@ -100,14 +101,26 @@ func retryBackoff(cfg RetryConfig, retry int) time.Duration {
 	for range retry - 1 {
 		wait = doubleDuration(wait)
 		if cfg.MaxBackoff > 0 && wait >= cfg.MaxBackoff {
-			return cfg.MaxBackoff
+			wait = cfg.MaxBackoff
+			break
 		}
 	}
 
 	if cfg.MaxBackoff > 0 && wait > cfg.MaxBackoff {
-		return cfg.MaxBackoff
+		wait = cfg.MaxBackoff
+	}
+	if cfg.Jitter {
+		wait = jitterBackoff(wait)
 	}
 	return wait
+}
+
+// jitterBackoff applies full jitter to a calculated retry wait.
+func jitterBackoff(wait time.Duration) time.Duration {
+	if wait <= 0 {
+		return 0
+	}
+	return time.Duration(rand.Int64N(int64(wait)))
 }
 
 // doubleDuration doubles duration and saturates at the largest duration value.
