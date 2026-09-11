@@ -3,10 +3,12 @@ package notify
 import (
 	"context"
 	"errors"
-	"github.com/stretchr/testify/require"
 	"sync"
 	"testing"
 	"time"
+	"uuid"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestShutdownDrainsAcceptedWork(t *testing.T) {
@@ -102,7 +104,7 @@ func TestConcurrentEnqueueAndShutdown(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, m.Start(t.Context()))
 	var wg sync.WaitGroup
-	admitted := make(chan string, 100)
+	admitted := make(chan uuid.UUID, 100)
 	failures := make(chan error, 100)
 	for range 100 {
 		wg.Add(1)

@@ -4,12 +4,13 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"uuid"
 )
 
 // dispatcher dequeues notifications and delivers them.
 type dispatcher struct {
 	store      *store
-	mailbox    <-chan string
+	mailbox    <-chan uuid.UUID
 	delivery   delivery
 	receivers  Receivers
 	logger     *slog.Logger
@@ -20,7 +21,7 @@ type dispatcher struct {
 // newDispatcher constructs a dispatcher from dependencies prepared by NewManager.
 func newDispatcher(
 	store *store,
-	mailbox <-chan string,
+	mailbox <-chan uuid.UUID,
 	delivery delivery,
 	receivers Receivers,
 	logger *slog.Logger,
@@ -50,7 +51,7 @@ func (d *dispatcher) start(ctx context.Context) {
 }
 
 // dispatch delivers one queued notification by queue id.
-func (d *dispatcher) dispatch(ctx context.Context, queueID string) {
+func (d *dispatcher) dispatch(ctx context.Context, queueID uuid.UUID) {
 	n, ok := d.store.get(queueID)
 	if !ok {
 		d.logger.Warn("notification not found", "queueID", queueID)
@@ -63,7 +64,12 @@ func (d *dispatcher) dispatch(ctx context.Context, queueID string) {
 	var outcome error
 	defer func() {
 		if d.onComplete != nil {
-			d.onComplete(Completion{QueueID: queueID, NotificationID: n.ID(), Err: outcome})
+			d.onComplete(
+				Completion{
+					QueueID:        queueID,
+					NotificationID: n.ID(),
+					Err:            outcome,
+				})
 		}
 	}()
 

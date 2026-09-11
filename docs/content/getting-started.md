@@ -1,6 +1,6 @@
 # Getting started
 
-Install Notifykit with Go 1.24 or newer:
+Install Notifykit with Go 1.27 or newer:
 
 ```sh
 go get github.com/containeroo/notifykit

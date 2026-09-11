@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"time"
+	"uuid"
 )
 
 // ReceiverID identifies a receiver in a Receivers map.
@@ -76,7 +77,7 @@ type DeliveryResult struct {
 
 // Notifier enqueues notifications for delivery.
 type Notifier interface {
-	Enqueue(ctx context.Context, notification Notification) (string, error)
+	Enqueue(ctx context.Context, notification Notification) (uuid.UUID, error)
 }
 
 // Payload is the receiver-scoped notification payload given to targets.

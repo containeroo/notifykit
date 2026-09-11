@@ -38,11 +38,11 @@ validated, and headers are written in deterministic order.
 
 ## Encryption
 
-| Mode | Behavior | Default port |
-| --- | --- | --- |
-| `email.TLSRequired` | Require STARTTLS before authentication or delivery | 587 |
-| `email.TLSImplicit` | Start TLS before the SMTP greeting | 465 |
-| `email.TLSPlaintext` | Explicitly use a plaintext relay | 587 |
+| Mode                 | Behavior                                           | Default port |
+| -------------------- | -------------------------------------------------- | ------------ |
+| `email.TLSRequired`  | Require STARTTLS before authentication or delivery | 587          |
+| `email.TLSImplicit`  | Start TLS before the SMTP greeting                 | 465          |
+| `email.TLSPlaintext` | Explicitly use a plaintext relay                   | 587          |
 
 `TLSRequired` is the default. Set a mode with `email.WithTLSMode(...)`. Explicit
 ports override the mode's default. Plaintext mode rejects credentials. Certificate

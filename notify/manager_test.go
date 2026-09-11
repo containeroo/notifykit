@@ -5,10 +5,13 @@ import (
 	"regexp"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+var _ Notifier = (*Manager)(nil)
 
 // TestNewManager tests expected behavior.
 func TestNewManager(t *testing.T) {
@@ -113,7 +116,7 @@ func TestManagerEnqueue(t *testing.T) {
 
 		manager, err := NewManager(nil, testLogger())
 		require.NoError(t, err)
-		manager.mailbox = make(chan string)
+		manager.mailbox = make(chan uuid.UUID)
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
@@ -246,20 +249,22 @@ func TestManagerStart(t *testing.T) {
 	})
 }
 
-// TestNextEventID tests expected behavior.
-func TestNextEventID(t *testing.T) {
+// TestManagerQueueIDs verifies generated queue IDs.
+func TestManagerQueueIDs(t *testing.T) {
 	t.Parallel()
 
 	t.Run("returns unique uuidv7 ids", func(t *testing.T) {
 		t.Parallel()
 
-		first, err := nextQueueID()
+		manager, err := NewManager(nil, testLogger())
 		require.NoError(t, err)
-		second, err := nextQueueID()
+		first, err := manager.Enqueue(t.Context(), testNotification{id: "n1"})
+		require.NoError(t, err)
+		second, err := manager.Enqueue(t.Context(), testNotification{id: "n1"})
 		require.NoError(t, err)
 
 		assert.NotEqual(t, first, second)
-		assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`), first)
+		assert.Regexp(t, regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`), first.String())
 	})
 }
 

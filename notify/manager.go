@@ -8,8 +8,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
-
-	"github.com/containeroo/uuidv7"
+	"uuid"
 )
 
 var ErrManagerStarted = errors.New("manager already started")
@@ -20,7 +19,7 @@ var ErrManagerStopped = errors.New("manager stopped")
 // Manager owns notification queueing and dispatch infrastructure.
 type Manager struct {
 	store      *store
-	mailbox    chan string
+	mailbox    chan uuid.UUID
 	dispatcher *dispatcher
 	receivers  Receivers
 
@@ -49,7 +48,7 @@ type managerConfig struct {
 // Completion reports the final outcome of one queued notification.
 // Err can be inspected with errors.As for DeliveryError. Nil means delivery succeeded.
 type Completion struct {
-	QueueID        string
+	QueueID        uuid.UUID
 	NotificationID string
 	Err            error
 }
@@ -117,7 +116,7 @@ func NewManager(receivers Receivers, logger *slog.Logger, opts ...ManagerOption)
 	}
 
 	store := newStore()
-	mailbox := make(chan string, cfg.capacity)
+	mailbox := make(chan uuid.UUID, cfg.capacity)
 	delivery := newDelivery(logger)
 	dispatcher := newDispatcher(store, mailbox, delivery, receivers, logger)
 
@@ -136,31 +135,29 @@ func NewManager(receivers Receivers, logger *slog.Logger, opts ...ManagerOption)
 	}, nil
 }
 
-// Enqueue stores a notification and queues it for delivery.
-func (m *Manager) Enqueue(ctx context.Context, n Notification) (string, error) {
+// Enqueue stores a notification and queues it for delivery, returning its UUIDv7 queue ID.
+func (m *Manager) Enqueue(ctx context.Context, n Notification) (uuid.UUID, error) {
 	if m == nil {
-		return "", errors.New("manager is nil")
+		return uuid.UUID{}, errors.New("manager is nil")
 	}
 	if ctx == nil {
-		return "", errors.New("context is nil")
+		return uuid.UUID{}, errors.New("context is nil")
 	}
 	if err := ctx.Err(); err != nil {
-		return "", err
+		return uuid.UUID{}, err
 	}
 	if n == nil {
-		return "", errors.New("notification is nil")
+		return uuid.UUID{}, errors.New("notification is nil")
 	}
-	id, err := nextQueueID()
-	if err != nil {
-		return "", err
-	}
+
+	id := uuid.NewV7()
 
 	select {
 	case m.slots <- struct{}{}:
 	case <-m.stopping:
-		return "", ErrManagerStopped
+		return uuid.UUID{}, ErrManagerStopped
 	case <-ctx.Done():
-		return "", ctx.Err()
+		return uuid.UUID{}, ctx.Err()
 	}
 	// Admission and mailbox closure share the lock. A reserved slot guarantees
 	// that sending below cannot block, even with concurrent producers.
@@ -168,11 +165,11 @@ func (m *Manager) Enqueue(ctx context.Context, n Notification) (string, error) {
 	defer m.mu.Unlock()
 	if m.stopped || (m.runCtx != nil && m.runCtx.Err() != nil) {
 		<-m.slots
-		return "", ErrManagerStopped
+		return uuid.UUID{}, ErrManagerStopped
 	}
 	if err := ctx.Err(); err != nil {
 		<-m.slots
-		return "", err
+		return uuid.UUID{}, err
 	}
 	m.store.put(id, n)
 	m.mailbox <- id
@@ -236,11 +233,6 @@ func (m *Manager) Start(ctx context.Context) error {
 	return nil
 }
 
-// nextQueueID returns a time-sortable UUIDv7 queue id.
-func nextQueueID() (string, error) {
-	return uuidv7.New()
-}
-
 // Shutdown stops admission and drains accepted notifications. If ctx expires,
 // active deliveries are canceled and queued notifications are discarded with
 // ErrManagerStopped completion outcomes. Canceling Start's context also aborts
@@ -277,6 +269,7 @@ func (m *Manager) Wait(ctx context.Context) error {
 		return ctx.Err()
 	}
 }
+
 func (m *Manager) stop(drain bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -293,6 +286,7 @@ func (m *Manager) stop(drain bool) {
 		go m.finish()
 	}
 }
+
 func (m *Manager) finish() {
 	m.workersDone.Wait()
 	m.stop(false)
@@ -302,7 +296,12 @@ func (m *Manager) finish() {
 		m.store.delete(id)
 		<-m.slots
 		if ok && m.dispatcher.onComplete != nil {
-			m.dispatcher.onComplete(Completion{QueueID: id, NotificationID: n.ID(), Err: ErrManagerStopped})
+			m.dispatcher.onComplete(
+				Completion{
+					QueueID:        id,
+					NotificationID: n.ID(),
+					Err:            ErrManagerStopped,
+				})
 		}
 	}
 	close(m.done)
