@@ -13,7 +13,7 @@ Your application owns its events and configuration; Notifykit handles delivery.
 
 ## Quick start
 
-Requires Go 1.24 or newer:
+Requires Go 1.27 or newer:
 
 ```sh
 go get github.com/containeroo/notifykit

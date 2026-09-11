@@ -77,12 +77,12 @@ fields, and `DeliveryError.Error()` does not include the result body.
 
 Configure response logging with `webhook.WithLogResponse(...)`:
 
-| Mode | Successful responses | Failed responses |
-| --- | --- | --- |
-| `LogResponseSummary` (default) | Status, code, duration, truncation | Same summary |
-| `LogResponseNone` | No target response log | Summary still logged |
-| `LogResponseBody` | Summary and response body | Summary and response body |
-| `LogResponseFull` | Summary, body, and headers | Summary, body, and headers |
+| Mode                           | Successful responses               | Failed responses           |
+| ------------------------------ | ---------------------------------- | -------------------------- |
+| `LogResponseSummary` (default) | Status, code, duration, truncation | Same summary               |
+| `LogResponseNone`              | No target response log             | Summary still logged       |
+| `LogResponseBody`              | Summary and response body          | Summary and response body  |
+| `LogResponseFull`              | Summary, body, and headers         | Summary, body, and headers |
 
 Body and full modes are explicit opt-ins. Response bodies and headers are not
 scrubbed; only enable them when the destination's data is appropriate for your

@@ -32,12 +32,12 @@ A nil error means delivery succeeded. Returning a non-success status code withou
 an error does not trigger retries. Populate `DeliveryResult` when your transport
 has useful response details:
 
-| Field | Meaning |
-| --- | --- |
-| `Status` | Transport-specific status, for example `sent` or `failed` |
-| `StatusCode` | HTTP-style status when applicable |
-| `Response` | Optional details; may be sensitive |
-| `RetryAfter` | Minimum delay requested before another attempt |
+| Field        | Meaning                                                   |
+| ------------ | --------------------------------------------------------- |
+| `Status`     | Transport-specific status, for example `sent` or `failed` |
+| `StatusCode` | HTTP-style status when applicable                         |
+| `Response`   | Optional details; may be sensitive                        |
+| `RetryAfter` | Minimum delay requested before another attempt            |
 
 Mark invalid configuration or rendering failures with `notify.Permanent(err)`.
 Mark network or stream failures with `notify.Transport(err)`. The built-in

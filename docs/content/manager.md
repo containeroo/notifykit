@@ -18,6 +18,11 @@ if err != nil {
 fmt.Println("queued notification", queueID)
 ```
 
+`Enqueue` returns a standard-library `uuid.UUID` generated with `uuid.NewV7()`.
+`Completion.QueueID` uses the same type; call `queueID.String()` when you need text.
+Application notification IDs and receiver IDs remain strings. Failed enqueue
+operations return the zero UUID alongside the error.
+
 Managers use one worker by default. Use `notify.WithWorkers` when queued notifications should be delivered concurrently:
 
 ```go

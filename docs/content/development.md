@@ -7,7 +7,7 @@ make test
 ```
 
 This runs formatting, `go vet`, and race-enabled tests with coverage. CI checks
-Go 1.24 and the current stable Go release. For an HTML coverage report:
+Go 1.27 and the current stable Go release. For an HTML coverage report:
 
 ```sh
 make cover
@@ -54,8 +54,7 @@ make build BINARY=/tmp/lore-bin
 ```
 
 That revision requires Go 1.27 or newer and Node.js/npm to build its frontend.
-These are documentation-tool requirements; the Notifykit library still supports
-Go 1.24.
+The Notifykit library also requires Go 1.27 for the standard-library `uuid` package.
 
 ## Build the site
 

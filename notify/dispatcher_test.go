@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -15,7 +16,7 @@ func TestNewDispatcher(t *testing.T) {
 	t.Parallel()
 
 	store := newStore()
-	mailbox := make(chan string)
+	mailbox := make(chan uuid.UUID)
 	delivery := &testDelivery{}
 	receivers := Receivers{"ops": {Name: "ops"}}
 	logger := testLogger()
@@ -24,7 +25,7 @@ func TestNewDispatcher(t *testing.T) {
 
 	require.NotNil(t, dispatcher)
 	assert.Same(t, store, dispatcher.store)
-	assert.Equal(t, (<-chan string)(mailbox), dispatcher.mailbox)
+	assert.Equal(t, (<-chan uuid.UUID)(mailbox), dispatcher.mailbox)
 	assert.Same(t, delivery, dispatcher.delivery)
 	assert.Equal(t, receivers, dispatcher.receivers)
 	assert.Same(t, logger, dispatcher.logger)
@@ -38,13 +39,14 @@ func TestDispatcherStart(t *testing.T) {
 		t.Parallel()
 
 		store := newStore()
-		mailbox := make(chan string, 1)
+		mailbox := make(chan uuid.UUID, 1)
 		delivery := &testDelivery{}
 		receiver := &Receiver{Name: "ops"}
 		dispatcher := newDispatcher(store, mailbox, delivery, Receivers{"ops": receiver}, testLogger())
 
-		store.put("q1", testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
-		mailbox <- "q1"
+		id := uuid.NewV7()
+		store.put(id, testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
+		mailbox <- id
 		close(mailbox)
 		dispatcher.start(context.Background())
 
@@ -56,7 +58,7 @@ func TestDispatcherStart(t *testing.T) {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		dispatcher := newDispatcher(newStore(), make(chan string), &testDelivery{}, Receivers{}, testLogger())
+		dispatcher := newDispatcher(newStore(), make(chan uuid.UUID), &testDelivery{}, Receivers{}, testLogger())
 
 		done := make(chan struct{})
 		go func() {
@@ -80,9 +82,10 @@ func TestDispatcherDispatch(t *testing.T) {
 		t.Parallel()
 
 		delivery := &testDelivery{}
-		dispatcher := newDispatcher(newStore(), make(chan string), delivery, Receivers{}, testLogger())
+		dispatcher := newDispatcher(newStore(), make(chan uuid.UUID), delivery, Receivers{}, testLogger())
 
-		dispatcher.dispatch(context.Background(), "missing")
+		missing := uuid.NewV7()
+		dispatcher.dispatch(context.Background(), missing)
 		assert.Equal(t, 0, delivery.calls)
 	})
 
@@ -92,12 +95,13 @@ func TestDispatcherDispatch(t *testing.T) {
 		store := newStore()
 		delivery := &testDelivery{}
 		receiver := &Receiver{Name: "ops"}
-		dispatcher := newDispatcher(store, make(chan string), delivery, Receivers{"ops": receiver}, testLogger())
+		dispatcher := newDispatcher(store, make(chan uuid.UUID), delivery, Receivers{"ops": receiver}, testLogger())
 
-		store.put("q1", testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
-		dispatcher.dispatch(context.Background(), "q1")
+		id := uuid.NewV7()
+		store.put(id, testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
+		dispatcher.dispatch(context.Background(), id)
 
-		_, ok := store.get("q1")
+		_, ok := store.get(id)
 		assert.False(t, ok)
 		assert.Equal(t, 1, delivery.calls)
 	})
@@ -107,10 +111,11 @@ func TestDispatcherDispatch(t *testing.T) {
 
 		store := newStore()
 		delivery := &testDelivery{}
-		dispatcher := newDispatcher(store, make(chan string), delivery, Receivers{}, testLogger())
+		dispatcher := newDispatcher(store, make(chan uuid.UUID), delivery, Receivers{}, testLogger())
 
-		store.put("q1", testNotification{id: "n1", receivers: []ReceiverID{"missing"}})
-		dispatcher.dispatch(context.Background(), "q1")
+		id := uuid.NewV7()
+		store.put(id, testNotification{id: "n1", receivers: []ReceiverID{"missing"}})
+		dispatcher.dispatch(context.Background(), id)
 
 		assert.Equal(t, 0, delivery.calls)
 	})
@@ -121,10 +126,11 @@ func TestDispatcherDispatch(t *testing.T) {
 		store := newStore()
 		delivery := &testDelivery{err: errors.New("boom")}
 		receiver := &Receiver{Name: "ops"}
-		dispatcher := newDispatcher(store, make(chan string), delivery, Receivers{"ops": receiver}, testLogger())
+		dispatcher := newDispatcher(store, make(chan uuid.UUID), delivery, Receivers{"ops": receiver}, testLogger())
 
-		store.put("q1", testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
-		dispatcher.dispatch(context.Background(), "q1")
+		id := uuid.NewV7()
+		store.put(id, testNotification{id: "n1", receivers: []ReceiverID{"ops"}})
+		dispatcher.dispatch(context.Background(), id)
 
 		assert.Equal(t, 1, delivery.calls)
 	})
@@ -138,7 +144,7 @@ func TestDispatcherResolveReceivers(t *testing.T) {
 		"ops": {Name: "ops"},
 		"dev": {Name: "dev"},
 	}
-	dispatcher := newDispatcher(newStore(), make(chan string), &testDelivery{}, receivers, testLogger())
+	dispatcher := newDispatcher(newStore(), make(chan uuid.UUID), &testDelivery{}, receivers, testLogger())
 
 	t.Run("returns all receivers without names", func(t *testing.T) {
 		t.Parallel()

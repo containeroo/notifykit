@@ -2,6 +2,7 @@ package notify
 
 import (
 	"testing"
+	"uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -21,8 +22,9 @@ func TestStorePut(t *testing.T) {
 	t.Parallel()
 
 	s := newStore()
-	s.put("q1", testNotification{id: "n1"})
-	n, ok := s.get("q1")
+	id := uuid.NewV7()
+	s.put(id, testNotification{id: "n1"})
+	n, ok := s.get(id)
 	require.True(t, ok)
 	assert.Equal(t, "n1", n.ID())
 }
@@ -32,7 +34,7 @@ func TestStoreGet(t *testing.T) {
 	t.Parallel()
 
 	s := newStore()
-	n, ok := s.get("missing")
+	n, ok := s.get(uuid.NewV7())
 	assert.Nil(t, n)
 	assert.False(t, ok)
 }
@@ -42,8 +44,9 @@ func TestStoreDelete(t *testing.T) {
 	t.Parallel()
 
 	s := newStore()
-	s.put("q1", testNotification{id: "n1"})
-	s.delete("q1")
-	_, ok := s.get("q1")
+	id := uuid.NewV7()
+	s.put(id, testNotification{id: "n1"})
+	s.delete(id)
+	_, ok := s.get(id)
 	assert.False(t, ok)
 }

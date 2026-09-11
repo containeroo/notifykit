@@ -89,15 +89,15 @@ body, err := templates.LoadHTMLSource(nil, "templates/email.tmpl", templates.Wit
 
 ## Loading templates
 
-| Function | Input | Output |
-| --- | --- | --- |
-| `ParseTemplate` | Text string | Byte renderer |
-| `ParseStringTemplate` | Text string | String renderer |
-| `ParseHTMLTemplate` | HTML string | Escaped byte renderer |
-| `Load` / `LoadString` | Filesystem path | Text renderer |
-| `LoadFromFS` / `LoadStringFromFS` | `fs.FS` and path | Text renderer |
-| `LoadSource` | File path or `builtin:name` | Text byte renderer |
-| `LoadHTMLSource` | File path or `builtin:name` | Escaped HTML renderer |
+| Function                          | Input                       | Output                |
+| --------------------------------- | --------------------------- | --------------------- |
+| `ParseTemplate`                   | Text string                 | Byte renderer         |
+| `ParseStringTemplate`             | Text string                 | String renderer       |
+| `ParseHTMLTemplate`               | HTML string                 | Escaped byte renderer |
+| `Load` / `LoadString`             | Filesystem path             | Text renderer         |
+| `LoadFromFS` / `LoadStringFromFS` | `fs.FS` and path            | Text renderer         |
+| `LoadSource`                      | File path or `builtin:name` | Text byte renderer    |
+| `LoadHTMLSource`                  | File path or `builtin:name` | Escaped HTML renderer |
 
 A `builtin:name` resolves `name.tmpl` at the root of the supplied filesystem.
 Applications supply that filesystem, for example through `embed.FS` and `fs.Sub`;

@@ -23,14 +23,14 @@ shows a complete program.
 
 ## Defaults and validation
 
-| Setting | Default |
-| --- | --- |
-| Method | `POST` |
-| Client timeout | 10 seconds |
-| Request Content-Type | `application/json; charset=utf-8` |
-| Response logging | Summary |
-| Response body limit | 4096 bytes |
-| Proxy environment variables | Disabled |
+| Setting                     | Default                           |
+| --------------------------- | --------------------------------- |
+| Method                      | `POST`                            |
+| Client timeout              | 10 seconds                        |
+| Request Content-Type        | `application/json; charset=utf-8` |
+| Response logging            | Summary                           |
+| Response body limit         | 4096 bytes                        |
+| Proxy environment variables | Disabled                          |
 
 `WithHeaders` adds headers and can override Content-Type. Header names and newline
 values are validated before delivery. The endpoint must be an absolute HTTP or
