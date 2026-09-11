@@ -123,6 +123,8 @@ func (r *Receiver) WithTargets(targets ...Target) *Receiver
 
 `SendTo` is a small wrapper around `Send`: it builds a `Receivers` map from the provided receivers, uses a discard logger for Notifykit internals, resolves routing, and returns after delivery completes.
 
+Retry attempts stop immediately when a target returns a permanent error. Built-in webhook targets classify rendering and request-configuration failures plus non-transient HTTP responses as permanent. HTTP `408`, `429`, and `5xx` responses remain retryable. Unclassified target errors remain retryable for backward compatibility. Custom targets can mark a failure as permanent with `notify.Permanent(err)`.
+
 ## Target options
 
 Webhook and email targets use functional options for simple construction.
@@ -441,3 +443,5 @@ Notifykit owns only the notification mechanics.
 ## License
 
 This project is licensed under the Apache 2.0 License. See the [LICENSE](LICENSE) file for details.
+
+

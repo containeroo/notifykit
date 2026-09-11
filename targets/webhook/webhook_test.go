@@ -152,6 +152,27 @@ func TestTargetSendResult(t *testing.T) {
 		assert.Contains(t, err.Error(), "value must not contain newline characters")
 	})
 
+	t.Run("marks render errors permanent", func(t *testing.T) {
+		t.Parallel()
+
+		target := &Target{}
+		_, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.False(t, notify.IsRetryable(err))
+	})
+
+	t.Run("marks header validation errors permanent", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget(t)
+		target.Headers = map[string]string{"X-Test": "ok\nInjected: yes"}
+		_, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.False(t, notify.IsRetryable(err))
+	})
+
 	t.Run("returns response details on success", func(t *testing.T) {
 		t.Parallel()
 
@@ -332,6 +353,128 @@ func TestTargetPost(t *testing.T) {
 		target := New(WithURL("://bad-url"))
 		_, _, _, err := target.post(context.Background(), []byte("{}"))
 		require.Error(t, err)
+	})
+}
+
+// TestRetryableStatus tests expected behavior.
+func TestRetryableStatus(t *testing.T) {
+	t.Parallel()
+
+	t.Run("retries request timeout", func(t *testing.T) {
+		t.Parallel()
+
+		assert.True(t, retryableStatus(http.StatusRequestTimeout))
+	})
+
+	t.Run("retries rate limiting", func(t *testing.T) {
+		t.Parallel()
+
+		assert.True(t, retryableStatus(http.StatusTooManyRequests))
+	})
+
+	t.Run("retries server errors", func(t *testing.T) {
+		t.Parallel()
+
+		assert.True(t, retryableStatus(http.StatusBadGateway))
+	})
+
+	t.Run("does not retry bad request", func(t *testing.T) {
+		t.Parallel()
+
+		assert.False(t, retryableStatus(http.StatusBadRequest))
+	})
+
+	t.Run("does not retry unauthorized", func(t *testing.T) {
+		t.Parallel()
+
+		assert.False(t, retryableStatus(http.StatusUnauthorized))
+	})
+
+	t.Run("does not retry forbidden", func(t *testing.T) {
+		t.Parallel()
+
+		assert.False(t, retryableStatus(http.StatusForbidden))
+	})
+
+	t.Run("does not retry not found", func(t *testing.T) {
+		t.Parallel()
+
+		assert.False(t, retryableStatus(http.StatusNotFound))
+	})
+
+	t.Run("does not retry unprocessable content", func(t *testing.T) {
+		t.Parallel()
+
+		assert.False(t, retryableStatus(http.StatusUnprocessableEntity))
+	})
+}
+
+// TestTargetRetryClassification tests expected behavior.
+func TestTargetRetryClassification(t *testing.T) {
+	t.Parallel()
+
+	t.Run("marks client errors permanent", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "bad request", http.StatusBadRequest)
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		_, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.False(t, notify.IsRetryable(err))
+	})
+
+	t.Run("keeps request timeout retryable", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "timeout", http.StatusRequestTimeout)
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		_, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.True(t, notify.IsRetryable(err))
+	})
+
+	t.Run("keeps rate limiting retryable", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "rate limited", http.StatusTooManyRequests)
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		_, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.True(t, notify.IsRetryable(err))
+	})
+
+	t.Run("keeps server errors retryable", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		_, err := target.SendResult(context.Background(), payload())
+
+		require.Error(t, err)
+		assert.True(t, notify.IsRetryable(err))
 	})
 }
 

@@ -61,6 +61,12 @@ func withRetry(
 		lastResult = result
 		if err != nil {
 			lastErr = err
+			if ctx.Err() != nil {
+				return lastResult, executed, ctx.Err()
+			}
+			if !IsRetryable(err) {
+				return lastResult, executed, lastErr
+			}
 			continue
 		}
 		return result, executed, nil
@@ -112,4 +118,46 @@ func doubleDuration(duration time.Duration) time.Duration {
 		return maxDuration
 	}
 	return duration * 2
+}
+
+// permanentError marks a delivery failure that should not be retried.
+type permanentError struct {
+	err error
+}
+
+// Error returns the underlying delivery error text.
+func (e permanentError) Error() string { return e.err.Error() }
+
+// Unwrap exposes the underlying delivery error.
+func (e permanentError) Unwrap() error { return e.err }
+
+// Retryable reports that this failure is permanent.
+func (permanentError) Retryable() bool { return false }
+
+// Permanent marks err as a non-retryable delivery failure.
+//
+// Targets should use Permanent for configuration, rendering, validation, and
+// other failures that another delivery attempt cannot fix. Nil remains nil.
+func Permanent(err error) error {
+	if err == nil || !IsRetryable(err) {
+		return err
+	}
+	return permanentError{err: err}
+}
+
+// IsRetryable reports whether a delivery error should be retried.
+//
+// Unclassified errors are retryable for backward compatibility. Targets may
+// return errors implementing Retryable() bool or wrap permanent failures with
+// Permanent.
+func IsRetryable(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	var classified interface{ Retryable() bool }
+	if errors.As(err, &classified) {
+		return classified.Retryable()
+	}
+	return true
 }

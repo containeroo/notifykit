@@ -257,7 +257,7 @@ func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify
 	}
 	body, err := t.Render(payload)
 	if err != nil {
-		return notify.DeliveryResult{}, err
+		return notify.DeliveryResult{}, notify.Permanent(err)
 	}
 
 	status, statusCode, responseBody, err := t.post(ctx, body)
@@ -314,7 +314,7 @@ func (t *Target) Render(payload notify.Payload) ([]byte, error) {
 // post sends the rendered body to the configured webhook endpoint.
 func (t *Target) post(ctx context.Context, body []byte) (status string, statusCode int, response string, err error) {
 	if err := validateHeaders(t.Headers); err != nil {
-		return "", 0, "", err
+		return "", 0, "", notify.Permanent(err)
 	}
 
 	client := t.Client
@@ -328,7 +328,7 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 
 	req, err := http.NewRequestWithContext(ctx, method, t.URL, bytes.NewReader(body))
 	if err != nil {
-		return "", 0, "", err
+		return "", 0, "", notify.Permanent(err)
 	}
 	req.Header.Set("Content-Type", "application/json; charset=utf-8")
 	for name, value := range t.Headers {
@@ -352,12 +352,22 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		err := responseError(t.label(), resp.Status)
+		if !retryableStatus(resp.StatusCode) {
+			err = notify.Permanent(err)
+		}
 		t.logFailedResponse(resp, responseBody, truncated, duration, err)
 		return resp.Status, resp.StatusCode, responseBody, err
 	}
 
 	t.logSuccessfulResponse(resp, responseBody, truncated, duration)
 	return resp.Status, resp.StatusCode, responseBody, nil
+}
+
+// retryableStatus reports whether an HTTP response is worth retrying.
+func retryableStatus(statusCode int) bool {
+	return statusCode == http.StatusRequestTimeout ||
+		statusCode == http.StatusTooManyRequests ||
+		(statusCode >= http.StatusInternalServerError && statusCode < 600)
 }
 
 // validateHeaders validates custom HTTP request headers.

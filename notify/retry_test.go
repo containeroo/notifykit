@@ -3,6 +3,7 @@ package notify
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -76,6 +77,21 @@ func TestWithRetryInternal(t *testing.T) {
 		assert.Equal(t, 3, calls)
 	})
 
+	t.Run("stops on permanent error", func(t *testing.T) {
+		t.Parallel()
+
+		boom := errors.New("boom")
+		calls := 0
+		_, attempts, err := withRetry(context.Background(), testLogger(), RetryConfig{Count: 3}, func() (DeliveryResult, error) {
+			calls++
+			return DeliveryResult{}, Permanent(boom)
+		})
+
+		require.ErrorIs(t, err, boom)
+		assert.Equal(t, 1, attempts)
+		assert.Equal(t, 1, calls)
+	})
+
 	t.Run("honors canceled context during backoff", func(t *testing.T) {
 		t.Parallel()
 
@@ -89,6 +105,61 @@ func TestWithRetryInternal(t *testing.T) {
 		require.ErrorIs(t, err, context.Canceled)
 		assert.Equal(t, 1, attempts)
 		assert.Equal(t, 1, calls)
+	})
+}
+
+// TestPermanent tests expected behavior.
+func TestPermanent(t *testing.T) {
+	t.Parallel()
+
+	t.Run("preserves nil", func(t *testing.T) {
+		t.Parallel()
+
+		assert.NoError(t, Permanent(nil))
+	})
+
+	t.Run("preserves underlying error", func(t *testing.T) {
+		t.Parallel()
+
+		boom := errors.New("boom")
+		err := Permanent(boom)
+
+		require.ErrorIs(t, err, boom)
+		assert.False(t, IsRetryable(err))
+	})
+
+	t.Run("does not wrap permanent error twice", func(t *testing.T) {
+		t.Parallel()
+
+		first := Permanent(errors.New("boom"))
+		second := Permanent(first)
+
+		assert.Equal(t, first, second)
+	})
+}
+
+// TestIsRetryable tests expected behavior.
+func TestIsRetryable(t *testing.T) {
+	t.Parallel()
+
+	t.Run("returns false for nil", func(t *testing.T) {
+		t.Parallel()
+
+		assert.False(t, IsRetryable(nil))
+	})
+
+	t.Run("defaults unclassified errors to retryable", func(t *testing.T) {
+		t.Parallel()
+
+		assert.True(t, IsRetryable(errors.New("temporary")))
+	})
+
+	t.Run("finds permanent classification through wrapping", func(t *testing.T) {
+		t.Parallel()
+
+		err := fmt.Errorf("delivery: %w", Permanent(errors.New("invalid config")))
+
+		assert.False(t, IsRetryable(err))
 	})
 }
 
