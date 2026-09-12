@@ -278,10 +278,7 @@ func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify
 		Response:   truncateBody(responseBody, target.ResponseBodyLimit),
 		RetryAfter: retryAfter,
 	}
-	if err != nil {
-		return result, err
-	}
-	return result, nil
+	return result, err
 }
 
 // Validate renders the target and validates request settings without sending it.
@@ -480,8 +477,6 @@ func (t *Target) logFailedResponse(resp *http.Response, body string, truncated b
 	mode := t.LogResponse
 	switch mode {
 	case LogResponseBody, LogResponseFull:
-	case LogResponseNone, LogResponseSummary, "":
-		mode = LogResponseSummary
 	default:
 		mode = LogResponseSummary
 	}
@@ -557,7 +552,12 @@ func readResponseBody(body io.Reader, limit int) (text string, truncated bool, e
 	if limit <= 0 {
 		limit = 4096
 	}
-	reader := io.LimitReader(body, int64(limit)+1)
+	// Saturate the lookahead size rather than overflowing at the largest int.
+	readLimit := int64(limit)
+	if readLimit < 1<<63-1 {
+		readLimit++
+	}
+	reader := io.LimitReader(body, readLimit)
 	data, err := io.ReadAll(reader)
 	if err != nil {
 		return "", false, err

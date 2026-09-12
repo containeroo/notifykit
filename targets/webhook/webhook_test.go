@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -653,6 +654,15 @@ func TestNewClient(t *testing.T) {
 // TestReadResponseBody tests expected behavior.
 func TestReadResponseBody(t *testing.T) {
 	t.Parallel()
+
+	t.Run("largest limit does not overflow", func(t *testing.T) {
+		t.Parallel()
+
+		text, truncated, err := readResponseBody(strings.NewReader("response"), math.MaxInt)
+		require.NoError(t, err)
+		assert.False(t, truncated)
+		assert.Equal(t, "response", text)
+	})
 
 	t.Run("reads and trims response", func(t *testing.T) {
 		t.Parallel()

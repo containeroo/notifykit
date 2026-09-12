@@ -202,6 +202,17 @@ func TestAnyRetryPolicy(t *testing.T) {
 	})
 }
 
+func TestAnyRetryPolicySnapshotsPolicies(t *testing.T) {
+	t.Parallel()
+
+	policies := []RetryPolicy{RetryOnServerError}
+	policy := AnyRetryPolicy(policies...)
+	policies[0] = RetryOnStatusCode(400)
+
+	assert.True(t, policy(DeliveryResult{StatusCode: 503}, errors.New("unavailable")))
+	assert.False(t, policy(DeliveryResult{StatusCode: 400}, errors.New("bad request")))
+}
+
 func TestDefaultRetryPolicy(t *testing.T) {
 	t.Parallel()
 

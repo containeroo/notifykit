@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"slices"
 )
 
 // RetryOnError retries every non-permanent error.
@@ -56,6 +57,7 @@ func RetryOnNetworkError(_ DeliveryResult, err error) bool {
 
 // AnyRetryPolicy combines policies and retries when any policy accepts the failure.
 func AnyRetryPolicy(policies ...RetryPolicy) RetryPolicy {
+	policies = slices.Clone(policies)
 	return func(result DeliveryResult, err error) bool {
 		for _, policy := range policies {
 			if policy != nil && policy(result, err) {
@@ -69,8 +71,7 @@ func AnyRetryPolicy(policies ...RetryPolicy) RetryPolicy {
 var defaultRetryPolicy = AnyRetryPolicy(
 	RetryOnTimeout,
 	RetryOnNetworkError,
-	RetryOnStatusCode(408),
-	RetryOnStatusCode(429),
+	RetryOnStatusCode(408, 429),
 	RetryOnServerError,
 )
 
