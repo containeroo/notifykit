@@ -43,6 +43,7 @@ func TestNew(t *testing.T) {
 	require.NotNil(t, target)
 	assert.Equal(t, 587, target.Port)
 	assert.Equal(t, 10*time.Second, target.DialTimeout)
+	assert.Equal(t, BodyHTML, target.BodyFormat)
 }
 
 // TestTargetType tests expected behavior.
@@ -360,7 +361,11 @@ func TestSMTPSend(t *testing.T) {
 	require.NoError(t, err)
 	defer client.Close() // nolint:errcheck
 
-	err = smtpSend(client, "from@example.com", []string{"to@example.com"}, nil, nil, []byte("Subject: hello\r\n\r\nbody\r\n"))
+	err = smtpSend(client, Target{
+		From:    "from@example.com",
+		To:      []string{"to@example.com"},
+		Timeout: time.Second,
+	}, []byte("Subject: hello\r\n\r\nbody\r\n"))
 	require.NoError(t, err)
 	assert.Contains(t, <-messages, "body")
 }
@@ -396,6 +401,26 @@ func TestValidateSMTPConfig(t *testing.T) {
 
 		err := validateSMTPConfig(validTarget())
 		require.NoError(t, err)
+	})
+
+	t.Run("accepts display names", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.From = "Kumbuka <from@example.com>"
+		target.To = []string{"Alice <to@example.com>"}
+
+		require.NoError(t, validateSMTPConfig(target))
+	})
+
+	t.Run("rejects invalid body format", func(t *testing.T) {
+		t.Parallel()
+
+		target := validTarget()
+		target.BodyFormat = "markdown"
+
+		err := validateSMTPConfig(target)
+		require.ErrorContains(t, err, "invalid email body format")
 	})
 
 	t.Run("accepts custom headers", func(t *testing.T) {
@@ -603,23 +628,52 @@ func TestValidateSMTPConfig(t *testing.T) {
 func TestBuildEmail(t *testing.T) {
 	t.Parallel()
 
-	message := buildEmail(Target{
-		From:    "from@example.com",
-		To:      []string{"a@example.com", "b@example.com"},
-		CC:      []string{"cc@example.com"},
-		BCC:     []string{"bcc@example.com"},
-		Headers: map[string]string{"X-B": "2", "X-A": "1"},
-	}, "subject", "body")
+	t.Run("renders html by default", func(t *testing.T) {
+		t.Parallel()
 
-	text := string(message)
-	assert.Contains(t, text, "From: from@example.com\r\n")
-	assert.Contains(t, text, "To: a@example.com, b@example.com\r\n")
-	assert.Contains(t, text, "Cc: cc@example.com\r\n")
-	assert.NotContains(t, text, "Bcc:")
-	assert.NotContains(t, text, "bcc@example.com")
-	assert.Contains(t, text, "Subject: subject\r\n")
-	assert.Contains(t, text, "\r\n\r\nbody\r\n")
-	assert.Less(t, strings.Index(text, "X-A: 1"), strings.Index(text, "X-B: 2"))
+		message := buildEmail(Target{
+			From:    "Kumbuka <from@example.com>",
+			To:      []string{"Alice <a@example.com>", "b@example.com"},
+			CC:      []string{"cc@example.com"},
+			BCC:     []string{"bcc@example.com"},
+			Headers: map[string]string{"X-B": "2", "X-A": "1"},
+		}, "subject", "body")
+
+		text := string(message)
+		assert.Contains(t, text, "From: \"Kumbuka\" <from@example.com>\r\n")
+		assert.Contains(t, text, "To: \"Alice\" <a@example.com>, <b@example.com>\r\n")
+		assert.Contains(t, text, "Cc: <cc@example.com>\r\n")
+		assert.NotContains(t, text, "Bcc:")
+		assert.NotContains(t, text, "bcc@example.com")
+		assert.Contains(t, text, "Subject: subject\r\n")
+		assert.Contains(t, text, "Content-Type: text/html; charset=utf-8\r\n")
+		assert.Contains(t, text, "\r\n\r\nbody\r\n")
+		assert.Less(t, strings.Index(text, "X-A: 1"), strings.Index(text, "X-B: 2"))
+	})
+
+	t.Run("renders text body", func(t *testing.T) {
+		t.Parallel()
+
+		message := string(buildEmail(Target{
+			From:       "from@example.com",
+			To:         []string{"to@example.com"},
+			BodyFormat: BodyText,
+		}, "subject", "line one\nline two"))
+
+		assert.Contains(t, message, "Content-Type: text/plain; charset=utf-8\r\n")
+		assert.Contains(t, message, "line one\r\nline two\r\n")
+	})
+
+	t.Run("encodes unicode subject", func(t *testing.T) {
+		t.Parallel()
+
+		message := string(buildEmail(Target{
+			From: "from@example.com",
+			To:   []string{"to@example.com"},
+		}, "Grüezi", "body"))
+
+		assert.Contains(t, message, "Subject: =?UTF-8?q?")
+	})
 }
 
 // TestAppendHeaders tests expected behavior.

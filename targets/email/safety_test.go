@@ -27,7 +27,7 @@ func TestSubjectAndAddressValidation(t *testing.T) {
 		require.True(t, notify.IsPermanent(err))
 		require.False(t, notify.RetryOnError(notify.DeliveryResult{}, err))
 	}
-	for _, address := range []string{"a@example.com\r\nX: yes", "", "a@example.com,b@example.com", "Name <a@example.com>"} {
+	for _, address := range []string{"a@example.com\r\nX: yes", "", "a@example.com,b@example.com"} {
 		target := validTarget(t)
 		target.To = []string{address}
 		require.Error(t, target.Validate(payload()))

@@ -1,7 +1,6 @@
 # Email
 
-Email targets send an HTML message through SMTP. Use a contextually escaped HTML
-body and a text subject:
+Email targets send text or HTML messages through SMTP. HTML remains the default for backward compatibility. Use a contextually escaped HTML body and a text subject:
 
 ```go
 subject, err := templates.ParseStringTemplate("subject", "Alert: {{ .Service }}")
@@ -49,12 +48,28 @@ ports override the mode's default. Plaintext mode rejects credentials. Certifica
 verification is enabled; `WithSkipTLSVerify()` disables it only when you explicitly
 choose to trust an otherwise unverifiable relay.
 
+## Body format
+
+Email bodies default to `email.BodyHTML`. Use `email.WithBodyFormat(email.BodyText)`
+for `text/plain` delivery or `email.WithBodyFormat(email.BodyHTML)` explicitly for
+`text/html`. The selected format controls the MIME `Content-Type`; rendering still
+comes from the configured `templates.Renderer`.
+
+## SMTP proxy
+
+Proxy use is opt-in. Add `email.WithProxyFromEnvironment()` to honor `HTTP_PROXY`,
+`HTTPS_PROXY`, and `NO_PROXY`, including their lowercase variants. SMTP connections
+are carried through an HTTP `CONNECT` tunnel. HTTPS proxy URLs establish TLS to the
+proxy before CONNECT. Proxy URL Basic credentials are supported and are not included
+in returned proxy errors.
+
+For implicit SMTP TLS, `HTTPS_PROXY` is preferred and `HTTP_PROXY` is used as a
+fallback. STARTTLS and plaintext SMTP prefer `HTTP_PROXY` and then `HTTPS_PROXY`.
+`NO_PROXY` bypasses proxying for matching SMTP hosts.
+
 ## Validation, retry classification, and timeouts
 
-Rendered subjects reject CR and LF. Sender and recipient values must each be a
-single bare mailbox such as `ops@example.com`; display-name forms and comma-separated
-lists are rejected. Pass multiple recipients as separate `WithTo`/`WithCC`/`WithBCC`
-arguments.
+Rendered subjects reject CR and LF. Sender and recipient values must each describe one mailbox, such as `ops@example.com` or `Operations <ops@example.com>`. Comma-separated lists are rejected; pass multiple recipients as separate `WithTo`/`WithCC`/`WithBCC` arguments.
 
 Email rendering and configuration errors are permanent. SMTP network failures,
 timeouts, and temporary 4xx replies are retryable with `DefaultRetryPolicy`;

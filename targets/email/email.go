@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"mime"
 	"net"
 	"net/mail"
 	"net/smtp"
@@ -35,8 +36,21 @@ const (
 	TLSPlaintext TLSMode = "plaintext"
 )
 
+// BodyFormat selects the MIME representation of the rendered email body.
+type BodyFormat string
+
+const (
+	// BodyHTML sends the rendered body as text/html.
+	BodyHTML BodyFormat = "html"
+	// BodyText sends the rendered body as text/plain.
+	BodyText BodyFormat = "text"
+)
+
 // WithTLSMode configures SMTP encryption. The default is TLSRequired.
 func WithTLSMode(mode TLSMode) Option { return func(t *Target) { t.TLSMode = mode } }
+
+// WithBodyFormat configures the rendered body's MIME format. The default is BodyHTML.
+func WithBodyFormat(format BodyFormat) Option { return func(t *Target) { t.BodyFormat = format } }
 
 // Option configures an email target.
 type Option func(*Target)
@@ -45,6 +59,8 @@ type Option func(*Target)
 type Target struct {
 	// TLSMode defaults to TLSRequired.
 	TLSMode TLSMode
+	// BodyFormat defaults to BodyHTML for backward compatibility.
+	BodyFormat BodyFormat
 	// Name is an optional human-readable target name used in logs.
 	Name string
 
@@ -96,7 +112,10 @@ type Target struct {
 	// Nonpositive values default to 30 seconds. An earlier caller deadline wins.
 	Timeout time.Duration
 
-	// Template renders the HTML email body.
+	// ProxyFromEnvironment enables HTTP_PROXY, HTTPS_PROXY, and NO_PROXY for SMTP tunnels.
+	ProxyFromEnvironment bool
+
+	// Template renders the email body.
 	Template templates.Renderer
 
 	// SubjectTmpl renders the email subject.
@@ -146,6 +165,7 @@ func NewFromTarget(target Target, opts ...Option) *Target {
 
 func applyDefaults(target *Target) {
 	target.TLSMode = cmp.Or(target.TLSMode, TLSRequired)
+	target.BodyFormat = cmp.Or(target.BodyFormat, BodyHTML)
 	if target.Port == 0 {
 		if target.TLSMode == TLSImplicit {
 			target.Port = 465
@@ -238,7 +258,12 @@ func WithDialTimeout(timeout time.Duration) Option {
 // WithTimeout bounds the complete SMTP attempt (default 30 seconds).
 func WithTimeout(timeout time.Duration) Option { return func(t *Target) { t.Timeout = timeout } }
 
-// WithTemplate configures the HTML email body template.
+// WithProxyFromEnvironment makes SMTP delivery honor HTTP_PROXY, HTTPS_PROXY, and NO_PROXY.
+func WithProxyFromEnvironment() Option {
+	return func(target *Target) { target.ProxyFromEnvironment = true }
+}
+
+// WithTemplate configures the email body template.
 func WithTemplate(tmpl templates.Renderer) Option {
 	return func(target *Target) { target.Template = tmpl }
 }
@@ -250,6 +275,21 @@ func WithSubjectTemplate(tmpl *templates.StringTemplate) Option {
 
 // Type returns the target type name.
 func (t *Target) Type() string { return "email" }
+
+// ProxyAddress returns the selected proxy authority without credentials.
+func (t *Target) ProxyAddress() (string, error) {
+	if t == nil || !t.ProxyFromEnvironment {
+		return "", nil
+	}
+	target := *t
+	applyDefaults(&target)
+	address := net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
+	proxy, err := resolveProxy(address, target.TLSMode)
+	if err != nil || proxy == nil {
+		return "", err
+	}
+	return proxy.Host, nil
+}
 
 // Send renders and sends an email notification.
 func (t *Target) Send(ctx context.Context, payload notify.Payload) (notify.DeliveryResult, error) {
@@ -351,24 +391,24 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) (resultE
 			resultErr = ctx.Err()
 		}
 	}()
+
 	addr := net.JoinHostPort(target.Host, strconv.Itoa(target.Port))
 	msg := buildEmail(target, subject, body)
 
-	dialer := net.Dialer{Timeout: target.DialTimeout}
-	conn, err := dialer.DialContext(ctx, "tcp", addr)
+	conn, err := dialSMTPConnection(ctx, target, addr)
 	if err != nil {
-		return err
+		return operationError("connection", target.Timeout, err)
 	}
 	defer conn.Close() // nolint:errcheck
 	if deadline, ok := ctx.Deadline(); ok {
 		if err := conn.SetDeadline(deadline); err != nil {
-			return err
+			return operationError("connection deadline", target.Timeout, err)
 		}
 	}
 	if target.TLSMode == TLSImplicit {
 		secured := tls.Client(conn, smtpTLSConfig(target))
 		if err := secured.HandshakeContext(ctx); err != nil {
-			return err
+			return operationError("TLS handshake", target.Timeout, err)
 		}
 		conn = secured
 	}
@@ -378,7 +418,7 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) (resultE
 
 	client, err := smtp.NewClient(conn, target.Host)
 	if err != nil {
-		return err
+		return operationError("server greeting", target.Timeout, err)
 	}
 	defer client.Close() // nolint:errcheck
 
@@ -386,14 +426,14 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) (resultE
 		return err
 	}
 	if err := client.Hello("localhost"); err != nil {
-		return err
+		return operationError("EHLO/HELO", target.Timeout, err)
 	}
 	if target.TLSMode != TLSPlaintext && target.TLSMode != TLSImplicit {
 		if ok, _ := client.Extension("STARTTLS"); !ok {
 			return notify.Permanent(errors.New("SMTP server does not support required STARTTLS"))
 		}
 		if err := client.StartTLS(smtpTLSConfig(target)); err != nil {
-			return err
+			return operationError("STARTTLS handshake", target.Timeout, err)
 		}
 	}
 
@@ -401,12 +441,74 @@ func sendSMTP(ctx context.Context, target Target, subject, body string) (resultE
 		return err
 	}
 	if err := smtpAuth(client, target); err != nil {
-		return err
+		return operationError("authentication", target.Timeout, err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return smtpSend(client, target.From, target.To, target.CC, target.BCC, msg)
+	return smtpSend(client, target, msg)
+}
+
+// dialSMTPConnection opens either a direct TCP connection or an HTTP CONNECT tunnel.
+func dialSMTPConnection(ctx context.Context, target Target, address string) (net.Conn, error) {
+	if !target.ProxyFromEnvironment {
+		return (&net.Dialer{Timeout: target.DialTimeout}).DialContext(ctx, "tcp", address)
+	}
+
+	proxy, err := resolveProxy(address, target.TLSMode)
+	if err != nil {
+		return nil, err
+	}
+	if proxy == nil {
+		return (&net.Dialer{Timeout: target.DialTimeout}).DialContext(ctx, "tcp", address)
+	}
+	return dialProxy(ctx, proxy, address, target.DialTimeout)
+}
+
+// OperationError identifies the SMTP stage that failed while preserving the underlying cause.
+type OperationError struct {
+	// Operation is the human-readable SMTP stage.
+	Operation string
+	// Timeout is the configured complete-attempt timeout.
+	Timeout time.Duration
+	// Err is the underlying transport or SMTP error.
+	Err error
+}
+
+// Error returns a concise operator-facing SMTP failure.
+func (e *OperationError) Error() string {
+	if e == nil {
+		return "SMTP operation failed"
+	}
+	if isTimeout(e.Err) {
+		return fmt.Sprintf("SMTP %s timed out after %s", e.Operation, e.Timeout)
+	}
+	return fmt.Sprintf("SMTP %s failed: %v", e.Operation, e.Err)
+}
+
+// Unwrap exposes the original cause for retry classification.
+func (e *OperationError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
+// operationError adds the failing SMTP stage while preserving the original cause.
+func operationError(operation string, timeout time.Duration, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &OperationError{Operation: operation, Timeout: timeout, Err: err}
+}
+
+// isTimeout reports whether an error chain represents an operation timeout.
+func isTimeout(err error) bool {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	var network net.Error
+	return errors.As(err, &network) && network.Timeout()
 }
 
 // closeConnOnContextDone closes conn if ctx is canceled during SMTP operations.
@@ -429,6 +531,11 @@ func validateSMTPConfig(target Target) error {
 	default:
 		return errors.New("invalid SMTP TLS mode")
 	}
+	switch target.BodyFormat {
+	case "", BodyHTML, BodyText:
+	default:
+		return errors.New("invalid email body format")
+	}
 	if target.TLSMode == TLSPlaintext && (target.User != "" || target.Pass != "") {
 		return errors.New("SMTP credentials require TLS")
 	}
@@ -447,11 +554,11 @@ func validateSMTPConfig(target Target) error {
 	if len(envelopeRecipients(target.To, target.CC, target.BCC)) == 0 {
 		return errors.New("email recipient is required")
 	}
-	if err := validateAddress(target.From); err != nil {
+	if _, err := parseMailbox(target.From); err != nil {
 		return fmt.Errorf("email from: %w", err)
 	}
 	for _, recipient := range envelopeRecipients(target.To, target.CC, target.BCC) {
-		if err := validateAddress(recipient); err != nil {
+		if _, err := parseMailbox(recipient); err != nil {
 			return fmt.Errorf("email recipient: %w", err)
 		}
 	}
@@ -494,7 +601,7 @@ func validateHeaderName(name string) error {
 // isReservedHeader reports whether name would override a standard header.
 func isReservedHeader(name string) bool {
 	switch strings.ToLower(name) {
-	case "from", "to", "cc", "bcc", "subject", "mime-version", "content-type":
+	case "from", "to", "cc", "bcc", "subject", "mime-version", "content-type", "content-transfer-encoding":
 		return true
 	default:
 		return false
@@ -509,11 +616,12 @@ func validateHeaderValue(name, value string) error {
 	return nil
 }
 
-// smtpTLSConfig returns the TLS configuration for STARTTLS.
+// smtpTLSConfig returns the TLS configuration for SMTP encryption.
 func smtpTLSConfig(target Target) *tls.Config {
 	return &tls.Config{
 		ServerName:         target.Host,
 		InsecureSkipVerify: target.SkipTLSVerify, // nolint:gosec // Explicitly controlled by caller configuration.
+		MinVersion:         tls.VersionTLS12,
 	}
 }
 
@@ -526,26 +634,37 @@ func smtpAuth(client *smtp.Client, target Target) error {
 }
 
 // smtpSend writes the message through an initialized SMTP client.
-func smtpSend(client *smtp.Client, from string, to, cc, bcc []string, msg []byte) error {
-	if err := client.Mail(from); err != nil {
-		return err
+func smtpSend(client *smtp.Client, target Target, msg []byte) error {
+	from, err := parseMailbox(target.From)
+	if err != nil {
+		return operationError("MAIL FROM", target.Timeout, err)
+	}
+	if err := client.Mail(from.Address); err != nil {
+		return operationError("MAIL FROM", target.Timeout, err)
 	}
 
-	for _, recipient := range envelopeRecipients(to, cc, bcc) {
-		if err := client.Rcpt(recipient); err != nil {
-			return err
+	for _, recipient := range envelopeRecipients(target.To, target.CC, target.BCC) {
+		mailbox, err := parseMailbox(recipient)
+		if err != nil {
+			return operationError("RCPT TO", target.Timeout, err)
+		}
+		if err := client.Rcpt(mailbox.Address); err != nil {
+			return operationError("RCPT TO", target.Timeout, err)
 		}
 	}
 
 	writer, err := client.Data()
 	if err != nil {
-		return err
+		return operationError("message data", target.Timeout, err)
 	}
 	if _, err := writer.Write(msg); err != nil {
 		_ = writer.Close()
-		return err
+		return operationError("message transfer", target.Timeout, err)
 	}
-	return writer.Close()
+	if err := writer.Close(); err != nil {
+		return operationError("message acceptance", target.Timeout, err)
+	}
+	return nil
 }
 
 // envelopeRecipients returns all SMTP envelope recipients.
@@ -556,15 +675,16 @@ func envelopeRecipients(to, cc, bcc []string) []string {
 // buildEmail returns a raw RFC 5322 style email message.
 func buildEmail(target Target, subject, body string) []byte {
 	headers := []string{
-		"From: " + target.From,
-		"To: " + strings.Join(target.To, ", "),
-		"Subject: " + subject,
+		"From: " + formatMailbox(target.From),
+		"To: " + formatMailboxes(target.To),
+		"Subject: " + encodeSubject(subject),
 		"MIME-Version: 1.0",
-		"Content-Type: text/html; charset=utf-8",
+		"Content-Type: " + bodyContentType(target.BodyFormat) + "; charset=utf-8",
+		"Content-Transfer-Encoding: 8bit",
 	}
 
 	if len(target.CC) > 0 {
-		headers = append(headers, "Cc: "+strings.Join(target.CC, ", "))
+		headers = append(headers, "Cc: "+formatMailboxes(target.CC))
 	}
 
 	headers = appendHeaders(headers, target.Headers)
@@ -578,9 +698,63 @@ func buildEmail(target Target, subject, body string) []byte {
 		buf.WriteString("\r\n")
 	}
 	buf.WriteString("\r\n")
-	buf.WriteString(body)
-	buf.WriteString("\r\n")
+	normalizedBody := normalizeBody(body)
+	buf.WriteString(normalizedBody)
+	if !strings.HasSuffix(normalizedBody, "\r\n") {
+		buf.WriteString("\r\n")
+	}
 	return []byte(buf.String())
+}
+
+// bodyContentType returns the MIME content type for a configured body format.
+func bodyContentType(format BodyFormat) string {
+	if format == BodyText {
+		return "text/plain"
+	}
+	return "text/html"
+}
+
+// formatMailbox canonicalizes a validated mailbox for a message header.
+func formatMailbox(value string) string {
+	mailbox, err := parseMailbox(value)
+	if err != nil {
+		return value
+	}
+	return mailbox.String()
+}
+
+// formatMailboxes canonicalizes validated mailboxes for a message header.
+func formatMailboxes(values []string) string {
+	formatted := make([]string, 0, len(values))
+	for _, value := range values {
+		formatted = append(formatted, formatMailbox(value))
+	}
+	return strings.Join(formatted, ", ")
+}
+
+// encodeSubject MIME-encodes a non-ASCII subject.
+func encodeSubject(value string) string {
+	if isASCII(value) {
+		return value
+	}
+	return mime.QEncoding.Encode("UTF-8", value)
+}
+
+// isASCII reports whether value can be emitted directly in an RFC 5322 header.
+func isASCII(value string) bool {
+	for _, character := range value {
+		if character > 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+// normalizeBody converts line endings to SMTP-friendly CRLF.
+func normalizeBody(body string) string {
+	body = strings.ReplaceAll(body, "\r\n", "\n")
+	body = strings.ReplaceAll(body, "\r", "\n")
+	return strings.ReplaceAll(body, "\n", "\r\n")
 }
 
 // appendHeaders appends custom headers in deterministic order.
@@ -595,16 +769,16 @@ func appendHeaders(lines []string, headers map[string]string) []string {
 	return lines
 }
 
-// validateAddress requires a single bare mailbox, matching the envelope API.
-func validateAddress(value string) error {
+// parseMailbox validates one mailbox and returns its parsed envelope address.
+func parseMailbox(value string) (*mail.Address, error) {
 	if header.ContainsNewline(value) {
-		return errors.New("address must not contain newline characters")
+		return nil, errors.New("address must not contain newline characters")
 	}
-	parsed, err := mail.ParseAddress(value)
-	if err != nil || parsed.Address != value {
-		return errors.New("address must be a single bare mailbox")
+	parsed, err := mail.ParseAddress(strings.TrimSpace(value))
+	if err != nil || parsed.Address == "" {
+		return nil, errors.New("address must be a single mailbox")
 	}
-	return nil
+	return parsed, nil
 }
 
 // classifySMTPError keeps SMTP reply codes separate from HTTP status codes.
@@ -612,6 +786,13 @@ func validateAddress(value string) error {
 func classifySMTPError(err error) error {
 	if err == nil || notify.IsPermanent(err) {
 		return err
+	}
+	var proxy *ProxyError
+	if errors.As(err, &proxy) {
+		if proxy.StatusCode == 408 || proxy.StatusCode == 429 || proxy.StatusCode >= 500 {
+			return notify.Transport(err)
+		}
+		return notify.Permanent(err)
 	}
 	var reply *textproto.Error
 	if errors.As(err, &reply) {
