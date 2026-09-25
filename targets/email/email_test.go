@@ -11,7 +11,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-	"uuid"
 
 	"github.com/containeroo/notifykit/notify"
 	"github.com/containeroo/notifykit/templates"
@@ -24,7 +23,7 @@ import (
 type testNotification struct{}
 
 // ID returns a static notification id.
-func (testNotification) ID() uuid.UUID { return uuid.MustParse("0199a000-0000-7000-8000-000000000001") }
+func (testNotification) ID() string { return "notification-1" }
 
 // Data returns email render data.
 func (testNotification) Data(receiver string, customData map[string]any, subject string) any {

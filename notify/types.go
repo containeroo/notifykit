@@ -23,7 +23,7 @@ type Receivers map[ReceiverID]*Receiver
 type RetryPolicy func(result DeliveryResult, err error) bool
 
 // Notification describes one notification and its template data.
-// ID must return a non-nil UUIDv7 that remains stable for the notification.
+// ID must return a non-empty application-owned identifier that remains stable for the notification.
 // Enqueued notifications must remain immutable through completion. Data must
 // support concurrent calls when notifications are reused across deliveries.
 //
@@ -31,7 +31,7 @@ type RetryPolicy func(result DeliveryResult, err error) bool
 // receivers. Notifications that do not implement ReceiverRouter are sent to all
 // configured receivers.
 type Notification interface {
-	ID() uuid.UUID
+	ID() string
 	Data(receiver string, customData map[string]any, subject string) any
 }
 
@@ -102,10 +102,10 @@ func (p Payload) Data(subject string) any {
 	return p.Notification.Data(p.Receiver, p.CustomData, subject)
 }
 
-// ID returns the notification UUIDv7.
-func (p Payload) ID() uuid.UUID {
+// ID returns the application-owned notification identifier.
+func (p Payload) ID() string {
 	if p.Notification == nil {
-		return uuid.Nil()
+		return ""
 	}
 	return p.Notification.ID()
 }

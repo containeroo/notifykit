@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
-	"uuid"
 )
 
 // Send synchronously delivers notification to the configured receivers.
@@ -117,13 +116,10 @@ func resolveReceivers(receivers Receivers, ids []ReceiverID, logger *slog.Logger
 	return out
 }
 
-// validateNotificationID requires a non-nil UUIDv7 notification identifier.
-func validateNotificationID(id uuid.UUID) error {
-	if id == uuid.Nil() {
+// validateNotificationID requires a non-empty application-owned identifier.
+func validateNotificationID(id string) error {
+	if id == "" {
 		return errors.New("notification ID is required")
-	}
-	if id[6]>>4 != 7 {
-		return errors.New("notification ID must be UUIDv7")
 	}
 	return nil
 }

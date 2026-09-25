@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,14 +32,6 @@ func TestSend(t *testing.T) {
 
 		err := Send(context.Background(), testNotification{}, nil, testLogger())
 		require.EqualError(t, err, "notification ID is required")
-	})
-
-	t.Run("requires notification id version 7", func(t *testing.T) {
-		t.Parallel()
-
-		notification := staticIDNotification{id: uuid.NewV4()}
-		err := Send(context.Background(), notification, nil, testLogger())
-		require.EqualError(t, err, "notification ID must be UUIDv7")
 	})
 
 	t.Run("requires resolved receivers", func(t *testing.T) {
@@ -141,14 +132,3 @@ func TestSend(t *testing.T) {
 		require.ErrorIs(t, err, boom)
 	})
 }
-
-// staticIDNotification provides an explicit UUID for ID validation tests.
-type staticIDNotification struct {
-	id uuid.UUID
-}
-
-// ID returns the configured notification ID.
-func (n staticIDNotification) ID() uuid.UUID { return n.id }
-
-// Data returns empty render data.
-func (n staticIDNotification) Data(string, map[string]any, string) any { return nil }

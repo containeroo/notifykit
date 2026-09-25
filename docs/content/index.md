@@ -41,7 +41,7 @@ Keep these parts in your application:
 - database persistence
 - metrics and audit logging
 
-Notifykit owns only the notification mechanics. Notification identities are application-owned UUIDv7 values; queued delivery additionally creates a separate UUIDv7 queue ID.
+Notifykit owns only the notification mechanics. Notification identities are application-owned strings; queued delivery additionally creates a separate Notifykit-owned UUIDv7 queue ID.
 
 ## Delivery flow
 

@@ -162,6 +162,6 @@ Targets within one notification are processed sequentially; a long retry wait
 can delay its other destinations.
 
 Retries can duplicate notifications if the receiver accepted a request but the
-acknowledgement was lost. A notification ID is an application-owned UUIDv7 tracing identifier; Notifykit
+acknowledgement was lost. A notification ID is an application-owned string used for tracing; Notifykit
 does not automatically deduplicate deliveries. Use endpoint-supported idempotency
 when your application requires it.

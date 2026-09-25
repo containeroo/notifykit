@@ -49,7 +49,7 @@ type managerConfig struct {
 // Err can be inspected with errors.As for DeliveryError. Nil means delivery succeeded.
 type Completion struct {
 	QueueID        uuid.UUID
-	NotificationID uuid.UUID
+	NotificationID string
 	Err            error
 }
 

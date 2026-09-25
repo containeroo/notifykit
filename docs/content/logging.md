@@ -117,7 +117,7 @@ INFO  notification target delivered attempts=2 status=sent
 
 ## Notification identity
 
-Generic delivery logs include `notificationID`, which is the application-owned UUIDv7 returned by `Notification.ID()`. The ID must remain stable across attempts so the initial attempt, retries, and final outcome can be correlated. Queued delivery also includes a separate UUIDv7 `queueID` for the queue admission itself.
+Generic delivery logs include `notificationID`, which is the application-owned string returned by `Notification.ID()`. Notifykit only requires it to be non-empty and stable across attempts so the initial attempt, retries, and final outcome can be correlated. Queued delivery also includes a separate Notifykit-owned UUIDv7 `queueID` for the queue admission itself.
 
 ## Logger ownership
 

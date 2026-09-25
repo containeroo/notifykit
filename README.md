@@ -27,19 +27,17 @@ package main
 import (
     "context"
     "log"
-    "uuid"
-
     "github.com/containeroo/notifykit/notify"
     "github.com/containeroo/notifykit/targets/webhook"
     "github.com/containeroo/notifykit/templates"
 )
 
 type Alert struct {
-    IDValue uuid.UUID
+    IDValue string
     Message string
 }
 
-func (a Alert) ID() uuid.UUID { return a.IDValue }
+func (a Alert) ID() string { return a.IDValue }
 func (a Alert) Data(_ string, _ map[string]any, title string) any {
     return map[string]any{"Message": a.Message, "Title": title}
 }
@@ -62,12 +60,14 @@ func main() {
         webhook.WithTemplate(body),
         webhook.WithValidateJSON(),
     )
-    if err := notify.SendTo(context.Background(), Alert{IDValue: uuid.NewV7(), Message: "API is down"},
+    if err := notify.SendTo(context.Background(), Alert{IDValue: "alert-api-down", Message: "API is down"},
         notify.NewReceiver("ops", target)); err != nil {
         log.Fatal(err)
     }
 }
 ```
+
+Notification IDs are application-owned non-empty strings. Notifykit keeps them stable in logs and retries but does not prescribe a UUID or other format. Queue IDs created by `Manager.Enqueue` remain Notifykit-owned UUIDv7 values.
 
 ## Documentation
 

@@ -35,7 +35,7 @@ func TestShutdownDrainsAcceptedWork(t *testing.T) {
 }
 
 func TestCancelStopsAdmissionAndReleasesProducers(t *testing.T) {
-	target := &blockingTarget{entered: make(chan uuid.UUID, 1), release: make(chan struct{})}
+	target := &blockingTarget{entered: make(chan string, 1), release: make(chan struct{})}
 	completed := make(chan Completion, 2)
 	m, err := NewManager(NewReceivers(NewReceiver("ops", target)), nil, WithQueueCapacity(1), WithOnComplete(func(c Completion) { completed <- c }))
 	require.NoError(t, err)
@@ -71,7 +71,7 @@ func TestCancelStopsAdmissionAndReleasesProducers(t *testing.T) {
 }
 
 func TestShutdownDeadlineAbortsDelivery(t *testing.T) {
-	target := &blockingTarget{entered: make(chan uuid.UUID, 1), release: make(chan struct{})}
+	target := &blockingTarget{entered: make(chan string, 1), release: make(chan struct{})}
 	m, err := NewManager(NewReceivers(NewReceiver("ops", target)), nil)
 	require.NoError(t, err)
 	require.NoError(t, m.Start(t.Context()))

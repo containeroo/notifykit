@@ -17,12 +17,12 @@ Applications implement this interface:
 
 ```go
 type Notification interface {
-    ID() uuid.UUID
+    ID() string
     Data(receiver string, customData map[string]any, subject string) any
 }
 ```
 
-`ID` returns a stable, non-nil UUIDv7 for logs and delivery tracing. Notifykit rejects nil UUIDs and UUIDs from other versions at synchronous send and queue admission boundaries.
+`ID` returns a stable, non-empty application-owned string for logs and delivery tracing. Notifykit does not prescribe its format; synchronous send and queue admission only reject an empty ID.
 
 `Data` returns the template context. Targets call it twice: first with an empty string to render their title or subject template, then with the rendered value so the body template can reuse it. Webhook render data commonly exposes that value as `.Title`; email render data commonly exposes it as `.Subject`.
 

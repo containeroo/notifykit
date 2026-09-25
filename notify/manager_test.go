@@ -104,16 +104,6 @@ func TestManagerEnqueue(t *testing.T) {
 		assert.Equal(t, uuid.Nil(), id)
 	})
 
-	t.Run("non-v7 notification id errors", func(t *testing.T) {
-		t.Parallel()
-
-		manager, err := NewManager(nil, testLogger())
-		require.NoError(t, err)
-		id, err := manager.Enqueue(context.Background(), staticIDNotification{id: uuid.NewV4()})
-		require.EqualError(t, err, "notification ID must be UUIDv7")
-		assert.Equal(t, uuid.Nil(), id)
-	})
-
 	t.Run("stores and queues notification", func(t *testing.T) {
 		t.Parallel()
 
@@ -128,7 +118,7 @@ func TestManagerEnqueue(t *testing.T) {
 		assert.Equal(t, id, queued)
 		n, ok := manager.store.get(id)
 		require.True(t, ok)
-		assert.NotEqual(t, uuid.Nil(), n.ID())
+		assert.Equal(t, "n1", n.ID())
 	})
 
 	t.Run("removes stored notification when context cancels before enqueue", func(t *testing.T) {
@@ -239,7 +229,7 @@ func TestManagerStart(t *testing.T) {
 		t.Parallel()
 
 		target := &blockingTarget{
-			entered: make(chan uuid.UUID, 2),
+			entered: make(chan string, 2),
 			release: make(chan struct{}),
 		}
 		manager, err := NewManager(
@@ -261,11 +251,11 @@ func TestManagerStart(t *testing.T) {
 		_, err = manager.Enqueue(ctx, second)
 		require.NoError(t, err)
 
-		seen := map[uuid.UUID]bool{
+		seen := map[string]bool{
 			receiveWorkerEntry(t, target.entered): true,
 			receiveWorkerEntry(t, target.entered): true,
 		}
-		assert.Equal(t, map[uuid.UUID]bool{first.ID(): true, second.ID(): true}, seen)
+		assert.Equal(t, map[string]bool{first.ID(): true, second.ID(): true}, seen)
 
 		close(target.release)
 	})
@@ -292,7 +282,7 @@ func TestManagerQueueIDs(t *testing.T) {
 
 // blockingTarget records when delivery starts and blocks until released.
 type blockingTarget struct {
-	entered chan uuid.UUID
+	entered chan string
 	release chan struct{}
 }
 
@@ -316,7 +306,7 @@ func (t *blockingTarget) Send(ctx context.Context, payload Payload) (DeliveryRes
 func (t *blockingTarget) Type() string { return "blocking" }
 
 // receiveWorkerEntry waits for a worker to enter target delivery.
-func receiveWorkerEntry(t *testing.T, entered <-chan uuid.UUID) uuid.UUID {
+func receiveWorkerEntry(t *testing.T, entered <-chan string) string {
 	t.Helper()
 
 	select {
@@ -324,6 +314,6 @@ func receiveWorkerEntry(t *testing.T, entered <-chan uuid.UUID) uuid.UUID {
 		return id
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for worker delivery")
-		return uuid.Nil()
+		return ""
 	}
 }

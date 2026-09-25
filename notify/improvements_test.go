@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 	"time"
-	"uuid"
 
 	"github.com/stretchr/testify/require"
 )
@@ -60,7 +59,7 @@ func TestQueueCapacityAndCompletion(t *testing.T) {
 	select {
 	case result := <-completed:
 		require.Equal(t, id, result.QueueID)
-		require.NotEqual(t, uuid.Nil(), result.NotificationID)
+		require.Equal(t, "n1", result.NotificationID)
 		require.ErrorIs(t, result.Err, failure)
 	case <-time.After(time.Second):
 		t.Fatal("missing completion")

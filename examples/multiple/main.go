@@ -10,7 +10,6 @@ import (
 	"os"
 	"strings"
 	"time"
-	"uuid"
 
 	"github.com/containeroo/notifykit/notify"
 	"github.com/containeroo/notifykit/targets/webhook"
@@ -26,13 +25,13 @@ const (
 
 // Alert is an application-owned event type that satisfies notify.Notification.
 type Alert struct {
-	IDValue uuid.UUID
+	IDValue string
 	Service string
 	Status  string
 }
 
 // ID returns a stable notification id for logs and delivery tracing.
-func (a Alert) ID() uuid.UUID { return a.IDValue }
+func (a Alert) ID() string { return a.IDValue }
 
 // Data builds the template context used by the title and webhook body.
 func (a Alert) Data(receiver string, customData map[string]any, title string) any {
@@ -175,7 +174,7 @@ func main() {
 	})
 
 	err = notify.SendTo(ctx, Alert{
-		IDValue: uuid.NewV7(),
+		IDValue: "alert-api-down",
 		Service: "api",
 		Status:  "down",
 	}, ops, dev, audit)
