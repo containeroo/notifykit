@@ -36,16 +36,20 @@ func (d *deliveryEngine) dispatchReceiver(ctx context.Context, receiver *Receive
 		targetPayload.Receiver = receiver.Name
 		targetPayload.CustomData = maps.Clone(receiver.CustomData)
 
-		result, attempts, err := withRetry(ctx, d.logger, receiver.Retry, func() (DeliveryResult, error) {
+		targetLogger := d.logger.With(
+			"receiver", receiver.Name,
+			"targetType", target.Type(),
+			"notificationID", payload.ID(),
+			"targetIndex", index,
+		)
+
+		result, attempts, err := withRetry(ctx, targetLogger, receiver.Retry, func() (DeliveryResult, error) {
 			return target.Send(ctx, targetPayload)
 		})
 		if err != nil {
 			errs = append(errs, &DeliveryError{ReceiverID: receiver.ID, TargetType: target.Type(), TargetIndex: index, Attempts: attempts, Result: result, Err: err})
-			d.logger.Error(
+			targetLogger.Error(
 				"notification target failed",
-				"receiver", receiver.Name,
-				"targetType", target.Type(),
-				"notificationID", payload.ID(),
 				"attempts", attempts,
 				"status", result.Status,
 				"statusCode", result.StatusCode,
@@ -54,11 +58,8 @@ func (d *deliveryEngine) dispatchReceiver(ctx context.Context, receiver *Receive
 			continue
 		}
 
-		d.logger.Info(
+		targetLogger.Info(
 			"notification target delivered",
-			"receiver", receiver.Name,
-			"targetType", target.Type(),
-			"notificationID", payload.ID(),
 			"attempts", attempts,
 			"status", result.Status,
 			"statusCode", result.StatusCode,

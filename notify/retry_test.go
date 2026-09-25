@@ -1,8 +1,11 @@
 package notify
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
+	"strings"
 	"testing"
 	"time"
 
@@ -91,6 +94,33 @@ func TestWithRetry(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, 2, attempts)
 		assert.Equal(t, 2, calls)
+	})
+
+	t.Run("logs every attempt including first", func(t *testing.T) {
+		t.Parallel()
+
+		var logs bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		calls := 0
+		_, attempts, err := withRetry(context.Background(), logger, RetryConfig{Count: 2, Policy: RetryOnError}, func() (DeliveryResult, error) {
+			calls++
+			if calls < 3 {
+				return DeliveryResult{}, errors.New("not yet")
+			}
+			return DeliveryResult{Status: "ok"}, nil
+		})
+
+		require.NoError(t, err)
+		assert.Equal(t, 3, attempts)
+
+		output := logs.String()
+		assert.Equal(t, 3, strings.Count(output, `msg="notification target attempt"`))
+		assert.Equal(t, 2, strings.Count(output, `msg="notification target retry"`))
+		assert.Contains(t, output, `attempt=1 maxAttempts=3`)
+		assert.Contains(t, output, `attempt=2 backoff=0s`)
+		assert.Contains(t, output, `attempt=2 maxAttempts=3`)
+		assert.Contains(t, output, `attempt=3 backoff=0s`)
+		assert.Contains(t, output, `attempt=3 maxAttempts=3`)
 	})
 }
 

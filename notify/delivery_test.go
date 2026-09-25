@@ -105,4 +105,25 @@ func TestDeliveryEngineDispatchReceiver(t *testing.T) {
 		assert.Contains(t, logs.String(), "notification target failed")
 		assert.NotContains(t, logs.String(), "secret-response-token")
 	})
+
+	t.Run("adds target context to attempt logs", func(t *testing.T) {
+		t.Parallel()
+
+		var logs bytes.Buffer
+		logger := slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+		delivery := &deliveryEngine{logger: logger}
+		target := &testTarget{targetType: "email"}
+		receiver := &Receiver{ID: "smtp", Name: "SMTP", Targets: []Target{target}}
+
+		err := delivery.dispatchReceiver(context.Background(), receiver, Payload{Notification: testNotification{id: "n1"}})
+		require.NoError(t, err)
+
+		output := logs.String()
+		assert.Contains(t, output, `msg="notification target attempt"`)
+		assert.Contains(t, output, `receiver=SMTP`)
+		assert.Contains(t, output, `targetType=email`)
+		assert.Contains(t, output, `notificationID=n1`)
+		assert.Contains(t, output, `targetIndex=0`)
+		assert.Contains(t, output, `attempt=1`)
+	})
 }

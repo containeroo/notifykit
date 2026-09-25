@@ -93,6 +93,28 @@ The configured target `Name` is used as its label; an unnamed target uses
 `webhook`, never its URL. `LogResponseNone` only suppresses successful webhook
 response logs: generic delivery logs and request/read errors can still appear.
 
+## Delivery logging
+
+Notifykit logs final target outcomes at `INFO` or `ERROR`. When the supplied logger
+enables `DEBUG`, it also logs the delivery lifecycle. Every actual target invocation
+emits `notification target attempt`, including the first attempt. Scheduled retries
+emit `notification target retry` with the upcoming attempt number and calculated
+backoff, including a zero-duration backoff.
+
+Delivery-scoped log records include the receiver name, target type, notification ID,
+and zero-based target index. Attempt records additionally include the current attempt
+and maximum number of attempts. Retry records include the upcoming attempt and
+backoff duration. `DeliveryResult.Response` is never included in these generic logs.
+
+A retry sequence therefore looks like:
+
+```text
+DEBUG notification target attempt attempt=1 maxAttempts=3
+DEBUG notification target retry attempt=2 backoff=1s
+DEBUG notification target attempt attempt=2 maxAttempts=3
+INFO  notification target delivered attempts=2 status=sent
+```
+
 ## Logger ownership
 
 The manager and `notify.Send` accept a logger for routing and delivery events.

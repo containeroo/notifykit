@@ -25,15 +25,13 @@ func withRetry(
 	for attempt := range maxAttempts {
 		if attempt > 0 {
 			wait := retryDelay(cfg, attempt, lastResult)
-			if wait > 0 {
-				logger.Debug(
-					"notification target retry",
-					"attempt",
-					attempt+1,
-					"backoff",
-					wait.String(),
-				)
+			logger.Debug(
+				"notification target retry",
+				"attempt", attempt+1,
+				"backoff", wait.String(),
+			)
 
+			if wait > 0 {
 				if err := waitForRetry(ctx, wait); err != nil {
 					return lastResult, executed, err
 				}
@@ -45,6 +43,12 @@ func withRetry(
 			return lastResult, executed, ctx.Err()
 		default:
 		}
+
+		logger.Debug(
+			"notification target attempt",
+			"attempt", attempt+1,
+			"maxAttempts", maxAttempts,
+		)
 
 		result, err := fn()
 		executed++
