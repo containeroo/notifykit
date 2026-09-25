@@ -27,15 +27,19 @@ package main
 import (
     "context"
     "log"
+    "uuid"
 
     "github.com/containeroo/notifykit/notify"
     "github.com/containeroo/notifykit/targets/webhook"
     "github.com/containeroo/notifykit/templates"
 )
 
-type Alert struct{ Message string }
+type Alert struct {
+    IDValue uuid.UUID
+    Message string
+}
 
-func (a Alert) ID() string { return "alert-1" }
+func (a Alert) ID() uuid.UUID { return a.IDValue }
 func (a Alert) Data(_ string, _ map[string]any, title string) any {
     return map[string]any{"Message": a.Message, "Title": title}
 }
@@ -58,7 +62,7 @@ func main() {
         webhook.WithTemplate(body),
         webhook.WithValidateJSON(),
     )
-    if err := notify.SendTo(context.Background(), Alert{"API is down"},
+    if err := notify.SendTo(context.Background(), Alert{IDValue: uuid.NewV7(), Message: "API is down"},
         notify.NewReceiver("ops", target)); err != nil {
         log.Fatal(err)
     }

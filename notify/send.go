@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"maps"
 	"slices"
+	"uuid"
 )
 
 // Send synchronously delivers notification to the configured receivers.
@@ -27,6 +28,9 @@ func Send(ctx context.Context, notification Notification, receivers Receivers, l
 	}
 	if notification == nil {
 		return errors.New("notification is nil")
+	}
+	if err := validateNotificationID(notification.ID()); err != nil {
+		return err
 	}
 	if logger == nil {
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -111,4 +115,15 @@ func resolveReceivers(receivers Receivers, ids []ReceiverID, logger *slog.Logger
 		out = append(out, receiver)
 	}
 	return out
+}
+
+// validateNotificationID requires a non-nil UUIDv7 notification identifier.
+func validateNotificationID(id uuid.UUID) error {
+	if id == uuid.Nil() {
+		return errors.New("notification ID is required")
+	}
+	if id[6]>>4 != 7 {
+		return errors.New("notification ID must be UUIDv7")
+	}
+	return nil
 }

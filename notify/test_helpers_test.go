@@ -2,8 +2,10 @@ package notify
 
 import (
 	"context"
+	"crypto/sha256"
 	"io"
 	"log/slog"
+	"uuid"
 )
 
 // testLogger returns a discard logger for tests.
@@ -18,8 +20,19 @@ type testNotification struct {
 	dataFn    func(receiver string, customData map[string]any, subject string) any
 }
 
-// ID returns the configured notification id.
-func (n testNotification) ID() string { return n.id }
+// ID returns a deterministic UUIDv7 for the configured test label.
+func (n testNotification) ID() uuid.UUID {
+	if n.id == "" {
+		return uuid.Nil()
+	}
+
+	sum := sha256.Sum256([]byte(n.id))
+	var id uuid.UUID
+	copy(id[:], sum[:16])
+	id[6] = (id[6] & 0x0f) | 0x70
+	id[8] = (id[8] & 0x3f) | 0x80
+	return id
+}
 
 // ReceiverIDs returns the configured receiver IDs.
 func (n testNotification) ReceiverIDs() []ReceiverID { return n.receivers }

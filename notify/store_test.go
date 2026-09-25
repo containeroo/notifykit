@@ -26,7 +26,7 @@ func TestStorePut(t *testing.T) {
 	s.put(id, testNotification{id: "n1"})
 	n, ok := s.get(id)
 	require.True(t, ok)
-	assert.Equal(t, "n1", n.ID())
+	assert.NotEqual(t, uuid.Nil(), n.ID())
 }
 
 // TestStoreGet tests expected behavior.

@@ -27,7 +27,7 @@ func TestShutdownDrainsAcceptedWork(t *testing.T) {
 	for range 3 {
 		require.NoError(t, (<-completed).Err)
 	}
-	_, err = m.Enqueue(t.Context(), testNotification{})
+	_, err = m.Enqueue(t.Context(), testNotification{id: "notification"})
 	require.ErrorIs(t, err, ErrManagerStopped)
 	require.ErrorIs(t, m.Start(t.Context()), ErrManagerStarted)
 	require.NoError(t, m.Shutdown(ctx))
@@ -35,16 +35,17 @@ func TestShutdownDrainsAcceptedWork(t *testing.T) {
 }
 
 func TestCancelStopsAdmissionAndReleasesProducers(t *testing.T) {
-	target := &blockingTarget{entered: make(chan string, 1), release: make(chan struct{})}
+	target := &blockingTarget{entered: make(chan uuid.UUID, 1), release: make(chan struct{})}
 	completed := make(chan Completion, 2)
 	m, err := NewManager(NewReceivers(NewReceiver("ops", target)), nil, WithQueueCapacity(1), WithOnComplete(func(c Completion) { completed <- c }))
 	require.NoError(t, err)
 	run, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	require.NoError(t, m.Start(run))
-	_, err = m.Enqueue(t.Context(), testNotification{id: "active"})
+	active := testNotification{id: "active"}
+	_, err = m.Enqueue(t.Context(), active)
 	require.NoError(t, err)
-	require.Equal(t, "active", receiveWorkerEntry(t, target.entered))
+	require.Equal(t, active.ID(), receiveWorkerEntry(t, target.entered))
 	_, err = m.Enqueue(t.Context(), testNotification{id: "queued"})
 	require.NoError(t, err)
 	producer := make(chan error, 1)
@@ -65,12 +66,12 @@ func TestCancelStopsAdmissionAndReleasesProducers(t *testing.T) {
 	}
 	require.Empty(t, m.store.items)
 	require.Empty(t, m.slots)
-	_, err = m.Enqueue(t.Context(), testNotification{})
+	_, err = m.Enqueue(t.Context(), testNotification{id: "notification"})
 	require.ErrorIs(t, err, ErrManagerStopped)
 }
 
 func TestShutdownDeadlineAbortsDelivery(t *testing.T) {
-	target := &blockingTarget{entered: make(chan string, 1), release: make(chan struct{})}
+	target := &blockingTarget{entered: make(chan uuid.UUID, 1), release: make(chan struct{})}
 	m, err := NewManager(NewReceivers(NewReceiver("ops", target)), nil)
 	require.NoError(t, err)
 	require.NoError(t, m.Start(t.Context()))
@@ -89,7 +90,7 @@ func TestShutdownBeforeStart(t *testing.T) {
 	completed := make(chan Completion, 1)
 	m, err := NewManager(nil, nil, WithOnComplete(func(c Completion) { completed <- c }))
 	require.NoError(t, err)
-	_, err = m.Enqueue(t.Context(), testNotification{})
+	_, err = m.Enqueue(t.Context(), testNotification{id: "notification"})
 	require.NoError(t, err)
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second)
 	defer cancel()
@@ -110,7 +111,7 @@ func TestConcurrentEnqueueAndShutdown(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			id, err := m.Enqueue(t.Context(), testNotification{})
+			id, err := m.Enqueue(t.Context(), testNotification{id: "notification"})
 			if err == nil {
 				admitted <- id
 			} else if !errors.Is(err, ErrManagerStopped) {

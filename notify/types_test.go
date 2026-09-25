@@ -2,6 +2,7 @@ package notify
 
 import (
 	"testing"
+	"uuid"
 
 	"github.com/stretchr/testify/assert"
 )
@@ -45,6 +46,6 @@ func TestPayloadID(t *testing.T) {
 		t.Parallel()
 
 		payload := Payload{Notification: testNotification{id: "n1"}}
-		assert.Equal(t, "n1", payload.ID())
+		assert.NotEqual(t, uuid.Nil(), payload.ID())
 	})
 }

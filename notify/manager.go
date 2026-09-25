@@ -49,7 +49,7 @@ type managerConfig struct {
 // Err can be inspected with errors.As for DeliveryError. Nil means delivery succeeded.
 type Completion struct {
 	QueueID        uuid.UUID
-	NotificationID string
+	NotificationID uuid.UUID
 	Err            error
 }
 
@@ -148,6 +148,9 @@ func (m *Manager) Enqueue(ctx context.Context, n Notification) (uuid.UUID, error
 	}
 	if n == nil {
 		return uuid.UUID{}, errors.New("notification is nil")
+	}
+	if err := validateNotificationID(n.ID()); err != nil {
+		return uuid.UUID{}, err
 	}
 
 	id := uuid.NewV7()

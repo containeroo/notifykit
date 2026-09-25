@@ -18,7 +18,7 @@ receiver := notify.NewReceiver("ops", webhookTarget, customTarget)
 
 ## Payload and rendering
 
-`payload.ID()` returns the notification identifier. `payload.Receiver` is the
+`payload.ID()` returns the notification UUIDv7. `payload.Receiver` is the
 receiver's display name, and `payload.CustomData` contains its custom template
 data. `payload.Data(subject)` delegates to the application's notification.
 

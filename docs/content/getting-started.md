@@ -18,15 +18,19 @@ package main
 import (
     "context"
     "log"
+    "uuid"
 
     "github.com/containeroo/notifykit/notify"
     "github.com/containeroo/notifykit/targets/webhook"
     "github.com/containeroo/notifykit/templates"
 )
 
-type Alert struct{ Message string }
+type Alert struct {
+    IDValue uuid.UUID
+    Message string
+}
 
-func (a Alert) ID() string { return "alert-1" }
+func (a Alert) ID() uuid.UUID { return a.IDValue }
 func (a Alert) Data(_ string, _ map[string]any, title string) any {
     return map[string]any{"Message": a.Message, "Title": title}
 }
@@ -49,15 +53,16 @@ func main() {
         webhook.WithTemplate(body),
         webhook.WithValidateJSON(),
     )
-    if err := notify.SendTo(context.Background(), Alert{"API is down"},
+    if err := notify.SendTo(context.Background(), Alert{IDValue: uuid.NewV7(), Message: "API is down"},
         notify.NewReceiver("ops", target)); err != nil {
         log.Fatal(err)
     }
 }
 ```
 
-`ID` identifies the notification for logs and tracing. This example uses a fixed
-ID; real applications should supply an identifier appropriate to each event.
+`ID` identifies the notification for logs and tracing. Notifykit requires a non-nil
+UUIDv7 so notification identities are typed, globally unique, and time-sortable. Generate
+it once when the application creates the notification and keep it stable through retries.
 `Data` builds the template context. The target calls it once to render the title,
 then again with that title to render the body.
 

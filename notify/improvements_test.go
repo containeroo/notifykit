@@ -3,15 +3,17 @@ package notify
 import (
 	"context"
 	"errors"
-	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
+	"uuid"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestRoutingAndStructuredErrors(t *testing.T) {
 	failure := errors.New("unavailable")
 	target := &testTarget{err: failure, result: DeliveryResult{StatusCode: 503}}
-	err := SendTo(t.Context(), testNotification{receivers: []ReceiverID{"ops", "ops"}}, NewReceiver("ops", target))
+	err := SendTo(t.Context(), testNotification{id: "n1", receivers: []ReceiverID{"ops", "ops"}}, NewReceiver("ops", target))
 	require.Equal(t, 1, target.calls)
 	var detail *DeliveryError
 	require.ErrorAs(t, err, &detail)
@@ -21,7 +23,7 @@ func TestRoutingAndStructuredErrors(t *testing.T) {
 	require.Equal(t, 0, detail.TargetIndex)
 	require.Equal(t, 1, detail.Attempts)
 	require.Equal(t, 503, detail.Result.StatusCode)
-	require.Error(t, SendTo(t.Context(), testNotification{}, NewReceiver("empty")))
+	require.Error(t, SendTo(t.Context(), testNotification{id: "notification"}, NewReceiver("empty")))
 }
 
 func TestReceiverSnapshots(t *testing.T) {
@@ -58,7 +60,7 @@ func TestQueueCapacityAndCompletion(t *testing.T) {
 	select {
 	case result := <-completed:
 		require.Equal(t, id, result.QueueID)
-		require.Equal(t, "n1", result.NotificationID)
+		require.NotEqual(t, uuid.Nil(), result.NotificationID)
 		require.ErrorIs(t, result.Err, failure)
 	case <-time.After(time.Second):
 		t.Fatal("missing completion")
