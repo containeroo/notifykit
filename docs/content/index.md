@@ -1,7 +1,6 @@
 # Notifykit
 
-Notifykit delivers templated notifications through webhooks and SMTP. Start with
-`notify.SendTo` for synchronous delivery, or use `notify.Manager` to queue work
+Notifykit delivers templated notifications through webhooks and SMTP. Start with `notify.SendTo` for synchronous delivery, or use `notify.Manager` to queue work
 and process notifications concurrently.
 
 ## Guides
@@ -19,16 +18,15 @@ and process notifications concurrently.
 
 ## Packages
 
-| Package           | Responsibility                                             |
-| ----------------- | ---------------------------------------------------------- |
-| `notify`          | Receivers, routing, delivery, retries, and queue lifecycle |
-| `targets/webhook` | HTTP delivery                                              |
-| `targets/email`   | SMTP delivery                                              |
-| `templates`       | Loading, parsing, and rendering text and HTML              |
+| Package                    | Responsibility                                             |
+| -------------------------- | ---------------------------------------------------------- |
+| `notify`                   | Receivers, routing, delivery, retries, and queue lifecycle |
+| `targets/webhook`          | HTTP delivery                                              |
+| `targets/webhook/response` | Optional HTTP response evaluation                          |
+| `targets/email`            | SMTP delivery                                              |
+| `templates`                | Loading, parsing, and rendering text and HTML              |
 
-See the [Go API reference](https://pkg.go.dev/github.com/containeroo/notifykit)
-for exported types and functions. The guides in this repository describe the
-current source; published package documentation follows released versions.
+See the [Go API reference](https://pkg.go.dev/github.com/containeroo/notifykit) for exported types and functions. The guides in this repository describe the current source; published package documentation follows released versions.
 
 ## Application boundary
 

@@ -9,6 +9,7 @@ Your application owns its events and configuration; Notifykit handles delivery.
 - Receiver routing and per-receiver template data.
 - Opt-in retries with backoff, jitter, and `Retry-After` support.
 - HTTP webhooks and SMTP with explicit TLS modes and optional proxy-environment support.
+- Optional HTTP response rules: accepted status codes, text/JSON matching, and extracted errors.
 - Text and HTML email bodies/templates, structured errors, and graceful shutdown.
 
 ## Quick start

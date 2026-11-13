@@ -19,6 +19,7 @@ import (
 
 	"github.com/containeroo/notifykit/internal/header"
 	"github.com/containeroo/notifykit/notify"
+	"github.com/containeroo/notifykit/targets/webhook/response"
 	"github.com/containeroo/notifykit/templates"
 )
 
@@ -112,6 +113,10 @@ type Target struct {
 	// only logged when LogResponseBody or LogResponseFull is configured.
 	LogResponse LogResponse
 
+	// ResponseRule optionally validates the status and body of delivered responses.
+	// When nil, historical behavior accepts HTTP 2xx without inspecting the body.
+	ResponseRule *response.Rule
+
 	// ResponseBodyLimit limits how many response-body bytes are read and logged.
 	//
 	// New defaults ResponseBodyLimit to 4096 when unset. Values less than or
@@ -151,6 +156,10 @@ func New(opts ...Option) *Target {
 // are filled in the same way as New.
 func NewFromTarget(target Target, opts ...Option) *Target {
 	target.Headers = maps.Clone(target.Headers)
+	if target.ResponseRule != nil {
+		rule := target.ResponseRule.Clone()
+		target.ResponseRule = &rule
+	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&target)
@@ -235,6 +244,17 @@ func WithLogResponse(mode LogResponse) Option {
 	return func(target *Target) { target.LogResponse = mode }
 }
 
+// WithResponseRule opts into validating the HTTP status and response body.
+// Without this option, existing HTTP 2xx behavior is unchanged.
+// The rule is copied so callers may reuse or modify their original configuration.
+func WithResponseRule(rule response.Rule) Option {
+	snapshot := rule.Clone()
+	return func(target *Target) {
+		copy := snapshot.Clone()
+		target.ResponseRule = &copy
+	}
+}
+
 // WithResponseBodyLimit configures how many response-body bytes are read and logged.
 func WithResponseBodyLimit(limit int) Option {
 	return func(target *Target) { target.ResponseBodyLimit = limit }
@@ -270,6 +290,11 @@ func (t *Target) SendResult(ctx context.Context, payload notify.Payload) (notify
 	if err := validateEndpoint(target.Method, target.URL); err != nil {
 		return notify.DeliveryResult{}, notify.Permanent(safeWebhookError(err))
 	}
+	if target.ResponseRule != nil {
+		if err := target.ResponseRule.Validate(); err != nil {
+			return notify.DeliveryResult{}, notify.Permanent(fmt.Errorf("invalid webhook response rule: %w", err))
+		}
+	}
 
 	status, statusCode, responseBody, retryAfter, err := target.post(ctx, body)
 	result := notify.DeliveryResult{
@@ -296,7 +321,15 @@ func (t *Target) Validate(payload notify.Payload) error {
 	if err := validateHeaders(target.Headers); err != nil {
 		return err
 	}
-	return validateEndpoint(target.Method, target.URL)
+	if err := validateEndpoint(target.Method, target.URL); err != nil {
+		return err
+	}
+	if target.ResponseRule != nil {
+		if err := target.ResponseRule.Validate(); err != nil {
+			return fmt.Errorf("invalid webhook response rule: %w", err)
+		}
+	}
+	return nil
 }
 
 // Render renders the configured title and body templates.
@@ -352,7 +385,8 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 	defer resp.Body.Close() // nolint:errcheck
 
 	retryAfter = parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
-	responseBody, truncated, err := readResponseBody(resp.Body, t.ResponseBodyLimit)
+	rawResponseBody, truncated, err := readResponseBodyRaw(resp.Body, t.ResponseBodyLimit)
+	responseBody := strings.TrimSpace(rawResponseBody)
 	if err != nil {
 		t.Logger.Error(
 			"webhook response read failed",
@@ -365,6 +399,25 @@ func (t *Target) post(ctx context.Context, body []byte) (status string, statusCo
 			},
 		)
 		return resp.Status, resp.StatusCode, "", retryAfter, notify.Transport(redactedError{cause: err, message: "webhook response read failed"})
+	}
+
+	if t.ResponseRule != nil {
+		// A truncated body cannot safely satisfy an opt-in body matcher.
+		if truncated && t.ResponseRule.HasBodyMatcher() {
+			limit := t.ResponseBodyLimit
+			if limit <= 0 {
+				limit = 4096
+			}
+			err := fmt.Errorf("webhook HTTP %d: response exceeds %d-byte validation limit", resp.StatusCode, limit)
+			t.logFailedResponse(resp, responseBody, truncated, duration, err)
+			return resp.Status, resp.StatusCode, responseBody, retryAfter, err
+		}
+		if err := t.ResponseRule.Evaluate(resp.StatusCode, []byte(rawResponseBody)); err != nil {
+			t.logFailedResponse(resp, responseBody, truncated, duration, err)
+			return resp.Status, resp.StatusCode, responseBody, retryAfter, err
+		}
+		t.logSuccessfulResponse(resp, responseBody, truncated, duration)
+		return resp.Status, resp.StatusCode, responseBody, retryAfter, nil
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -547,8 +600,14 @@ func WithSkipTLSVerify() ClientOption {
 	return func(cfg *clientOptions) { cfg.skipTLSVerify = true }
 }
 
-// readResponseBody reads a response body up to limit bytes.
+// readResponseBody trims the bounded response body for historical callers.
 func readResponseBody(body io.Reader, limit int) (text string, truncated bool, err error) {
+	text, truncated, err = readResponseBodyRaw(body, limit)
+	return strings.TrimSpace(text), truncated, err
+}
+
+// readResponseBodyRaw reads a bounded response body without changing its contents.
+func readResponseBodyRaw(body io.Reader, limit int) (text string, truncated bool, err error) {
 	if limit <= 0 {
 		limit = 4096
 	}
@@ -566,7 +625,7 @@ func readResponseBody(body io.Reader, limit int) (text string, truncated bool, e
 	if truncated {
 		data = data[:limit]
 	}
-	return strings.TrimSpace(string(data)), truncated, nil
+	return string(data), truncated, nil
 }
 
 // responseError returns a secret-safe delivery error.

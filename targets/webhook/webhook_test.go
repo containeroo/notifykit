@@ -3,6 +3,7 @@ package webhook
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/containeroo/notifykit/notify"
+	"github.com/containeroo/notifykit/targets/webhook/response"
 	"github.com/containeroo/notifykit/templates"
 
 	"github.com/stretchr/testify/assert"
@@ -753,4 +755,217 @@ func bodyTemplate(t *testing.T, value string) *templates.Template {
 	tmpl, err := templates.ParseTemplate("body", value, templates.WithDefaultFuncs())
 	require.NoError(t, err)
 	return tmpl
+}
+
+// TestTargetResponseRule checks opt-in acceptance while retaining legacy behavior.
+func TestTargetResponseRule(t *testing.T) {
+	t.Parallel()
+
+	t.Run("default keeps accepting 2xx without validating a JSON body", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"ok":false,"error":"channel_not_found"}`))
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		result, err := target.SendResult(t.Context(), payload())
+
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, result.StatusCode)
+	})
+
+	t.Run("opt in rejects Slack HTTP 200 with ok false", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"ok":false,"error":"channel_not_found","token":"private"}`))
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		WithResponseRule(response.Rule{JSON: &response.JSON{
+			Pointer:      "/ok",
+			Equals:       json.RawMessage(`true`),
+			ErrorPointer: "/error",
+		}})(target)
+
+		result, err := target.SendResult(t.Context(), payload())
+
+		require.Error(t, err)
+		assert.Equal(t, http.StatusOK, result.StatusCode)
+		assert.ErrorContains(t, err, "channel_not_found")
+		assert.NotContains(t, err.Error(), "private")
+		assert.False(t, notify.IsPermanent(err))
+		assert.False(t, notify.IsTransport(err))
+	})
+
+	t.Run("opt in accepts Slack HTTP 200 with ok true", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"ok":true,"channel":"C123"}`))
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		WithResponseRule(response.Rule{JSON: &response.JSON{
+			Pointer: "/ok",
+			Equals:  json.RawMessage(`true`),
+		}})(target)
+
+		result, err := target.SendResult(t.Context(), payload())
+
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, result.StatusCode)
+	})
+
+	t.Run("opt in accepts configured non 2xx status", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusTeapot)
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		WithResponseRule(response.Rule{StatusCodes: []int{http.StatusTeapot}})(target)
+
+		result, err := target.SendResult(t.Context(), payload())
+
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusTeapot, result.StatusCode)
+	})
+
+	t.Run("opt in rejects other 2xx when restricted", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		WithResponseRule(response.Rule{StatusCodes: []int{http.StatusCreated}})(target)
+
+		result, err := target.SendResult(t.Context(), payload())
+
+		require.Error(t, err)
+		assert.Equal(t, http.StatusOK, result.StatusCode)
+		assert.ErrorContains(t, err, "unexpected HTTP status")
+	})
+
+	t.Run("opt in exact text match preserves whitespace", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte("ok\n"))
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		expected := "ok"
+		WithResponseRule(response.Rule{Text: &response.Text{Equals: &expected}})(target)
+
+		result, err := target.SendResult(t.Context(), payload())
+
+		require.Error(t, err)
+		assert.Equal(t, "ok", result.Response)
+		assert.ErrorContains(t, err, "response did not match")
+	})
+
+	t.Run("invalid response rule rejects before making request", func(t *testing.T) {
+		t.Parallel()
+
+		requests := 0
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			requests++
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		WithResponseRule(response.Rule{StatusCodes: []int{999}})(target)
+
+		err := target.Validate(payload())
+		require.ErrorContains(t, err, "invalid HTTP status code")
+
+		_, err = target.SendResult(t.Context(), payload())
+		require.Error(t, err)
+		assert.True(t, notify.IsPermanent(err))
+		assert.Zero(t, requests)
+	})
+
+	t.Run("oversized response fails safely with a body rule", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(`{"ok":true,"padding":"` + strings.Repeat("x", 256) + `"}`))
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		target.ResponseBodyLimit = 32
+		WithResponseRule(response.Rule{JSON: &response.JSON{
+			Pointer: "/ok",
+			Equals:  json.RawMessage(`true`),
+		}})(target)
+
+		result, err := target.SendResult(t.Context(), payload())
+
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "32-byte validation limit")
+		assert.LessOrEqual(t, len(result.Response), 32)
+	})
+
+	t.Run("status only rule accepts truncated 2xx body", func(t *testing.T) {
+		t.Parallel()
+
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = w.Write([]byte(strings.Repeat("x", 256)))
+		}))
+		defer server.Close()
+
+		target := validTarget(t)
+		target.URL = server.URL
+		target.ResponseBodyLimit = 32
+		WithResponseRule(response.Rule{StatusCodes: []int{http.StatusOK}})(target)
+
+		result, err := target.SendResult(t.Context(), payload())
+
+		require.NoError(t, err)
+		assert.Equal(t, http.StatusOK, result.StatusCode)
+		assert.Len(t, result.Response, 32)
+	})
+
+	t.Run("rule option copies its input", func(t *testing.T) {
+		t.Parallel()
+
+		codes := []int{http.StatusCreated}
+		rule := response.Rule{StatusCodes: codes}
+		target := New(WithResponseRule(rule))
+		codes[0] = http.StatusOK
+
+		require.NotNil(t, target.ResponseRule)
+		assert.Equal(t, []int{http.StatusCreated}, target.ResponseRule.StatusCodes)
+	})
+
+	t.Run("NewFromTarget copies the rule", func(t *testing.T) {
+		t.Parallel()
+
+		original := New(WithResponseRule(response.Rule{StatusCodes: []int{http.StatusCreated}}))
+		copy := NewFromTarget(*original)
+		original.ResponseRule.StatusCodes[0] = http.StatusOK
+
+		require.NotNil(t, copy.ResponseRule)
+		assert.Equal(t, []int{http.StatusCreated}, copy.ResponseRule.StatusCodes)
+	})
 }
