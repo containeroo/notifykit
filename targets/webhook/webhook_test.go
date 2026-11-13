@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/containeroo/notifykit/notify"
-	"github.com/containeroo/notifykit/targets/webhook/response"
+	"github.com/containeroo/notifykit/response"
 	"github.com/containeroo/notifykit/templates"
 
 	"github.com/stretchr/testify/assert"

@@ -31,9 +31,7 @@ Parse `title` with `templates.ParseStringTemplate` and `body` with `templates.Pa
 
 `WithHeaders` adds headers and can override Content-Type. Header names and newline values are validated before delivery. The endpoint must be an absolute HTTP or HTTPS URL. `WithValidateJSON` rejects invalid rendered JSON before sending.
 
-`New` applies defaults but does not validate the templates or endpoint. Use
-`target.Validate(payload)` to render and check configuration without sending, or
-`target.Render(payload)` to inspect the body. `Send` validates before delivery.
+`New` applies defaults but does not validate the templates or endpoint. Use `target.Validate(payload)` to render and check configuration without sending, or `target.Render(payload)` to inspect the body. `Send` validates before delivery.
 
 ## Clients and logging dependencies
 
@@ -71,7 +69,7 @@ import (
     "encoding/json"
 
     "github.com/containeroo/notifykit/targets/webhook"
-    "github.com/containeroo/notifykit/targets/webhook/response"
+    "github.com/containeroo/notifykit/response"
 )
 
 rule := response.Rule{
@@ -119,7 +117,9 @@ An omitted `StatusCodes` accepts every 2xx response. A non-empty list replaces t
 
 Use `rule.Validate()` to validate rules ahead of delivery; the webhook target also rejects invalid rules before sending, marking them as permanent errors. Response evaluation is available independently through `rule.Evaluate(statusCode, body)`.
 
-When a body matcher is enabled, responses larger than the configured body limit fail validation rather than accidentally passing against a truncated body. `WithResponseBodyLimit` defaults to 4096 bytes; increase it if your API returns larger successful JSON documents. Captured response data is still size-bounded. Only explicitly selected error values (or plain text with a text matcher) can appear in returned errors. They are stripped of control characters and limited to 256 bytes; do not select JSON fields containing credentials.
+When a body matcher is enabled, responses larger than the configured body limit fail validation rather than accidentally passing against a truncated body. `WithResponseBodyLimit` defaults to 4096 bytes; increase it if your API returns larger successful JSON documents. Captured response data is still size-bounded.
+
+Only explicitly selected error values (or plain text with a text matcher) can appear in returned errors. They are stripped of control characters and limited to 256 bytes; do not select JSON fields containing credentials.
 
 **Retry note:** The built-in `DefaultRetryPolicy` retries transport failures, 408, 429, and 5xx. A response-body mismatch on HTTP 200 returns a normal error but does not trigger a default retry. Choose `notify.RetryOnError` or a custom policy when you need retry behavior for such responses.
 

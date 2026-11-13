@@ -1,4 +1,4 @@
-// Package response evaluates optional webhook response acceptance rules.
+// Package response evaluates configurable HTTP response acceptance rules.
 // It does not load configuration, perform HTTP requests, or log response bodies.
 package response
 
@@ -81,7 +81,6 @@ func (r Rule) Validate() error {
 	if r.Text != nil && r.JSON != nil {
 		return errors.New("text and JSON response matchers are mutually exclusive")
 	}
-
 	if r.Text != nil {
 		if (r.Text.Equals == nil) == (r.Text.Contains == nil) {
 			return errors.New("text response requires exactly one of equals or contains")
@@ -90,23 +89,19 @@ func (r Rule) Validate() error {
 			return errors.New("text contains must not be empty")
 		}
 	}
-
 	if r.JSON != nil {
 		if err := validatePointer(r.JSON.Pointer); err != nil {
 			return fmt.Errorf("invalid JSON pointer: %w", err)
 		}
-
 		if len(r.JSON.Equals) == 0 || !json.Valid(r.JSON.Equals) {
 			return errors.New("JSON equals must contain a valid JSON value")
 		}
-
 		if r.JSON.ErrorPointer != "" {
 			if err := validatePointer(r.JSON.ErrorPointer); err != nil {
 				return fmt.Errorf("invalid JSON error pointer: %w", err)
 			}
 		}
 	}
-
 	return nil
 }
 
@@ -116,7 +111,6 @@ func (r Rule) Evaluate(statusCode int, body []byte) error {
 	if err := r.Validate(); err != nil {
 		return fmt.Errorf("invalid webhook response rule: %w", err)
 	}
-
 	if statusCode < 100 || statusCode > 599 {
 		return fmt.Errorf("invalid webhook HTTP status %d", statusCode)
 	}
@@ -132,7 +126,7 @@ func (r Rule) Evaluate(statusCode int, body []byte) error {
 		}
 	}
 
-	matched := true
+	var matched = true
 	var detail string
 
 	if r.Text != nil {
@@ -207,15 +201,12 @@ func validatePointer(pointer string) error {
 			if segment[index] != '~' {
 				continue
 			}
-
 			if index+1 == len(segment) || (segment[index+1] != '0' && segment[index+1] != '1') {
 				return errors.New("JSON pointer contains invalid ~ escape")
 			}
-
 			index++
 		}
 	}
-
 	return nil
 }
 
