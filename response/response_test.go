@@ -276,3 +276,90 @@ func TestHasBodyMatcher(t *testing.T) {
 		t.Fatal("text matcher not detected")
 	}
 }
+
+// TestRuleEvaluateCombined verifies status and body rules remain independent.
+func TestRuleEvaluateCombined(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts explicitly allowed status with matching text", func(t *testing.T) {
+		t.Parallel()
+
+		rule := Rule{
+			StatusCodes: []int{418},
+			Text: &Text{
+				Equals: str("ok"),
+			},
+		}
+
+		if err := rule.Evaluate(418, []byte("ok")); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("accepts explicitly allowed status with matching JSON", func(t *testing.T) {
+		t.Parallel()
+
+		rule := Rule{
+			StatusCodes: []int{418},
+			JSON: &JSON{
+				Pointer:      "/ok",
+				Equals:       json.RawMessage(`true`),
+				ErrorPointer: "/error",
+			},
+		}
+
+		if err := rule.Evaluate(418, []byte(`{"ok":true,"error":"secret"}`)); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	t.Run("rejected status takes precedence over matching JSON", func(t *testing.T) {
+		t.Parallel()
+
+		rule := Rule{
+			JSON: &JSON{
+				Pointer:      "/ok",
+				Equals:       json.RawMessage(`true`),
+				ErrorPointer: "/error",
+			},
+		}
+
+		err := rule.Evaluate(403, []byte(`{"ok":true,"error":"forbidden"}`))
+		if err == nil || err.Error() != "webhook HTTP 403: unexpected HTTP status: forbidden" {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("malformed JSON never leaks rejected body", func(t *testing.T) {
+		t.Parallel()
+
+		rule := Rule{
+			JSON: &JSON{
+				Pointer:      "/ok",
+				Equals:       json.RawMessage(`true`),
+				ErrorPointer: "/error",
+			},
+		}
+
+		err := rule.Evaluate(403, []byte(`{"token":"secret"} trailing`))
+		if err == nil || err.Error() != "webhook HTTP 403: unexpected HTTP status" {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+
+	t.Run("accepted status does not bypass text mismatch", func(t *testing.T) {
+		t.Parallel()
+
+		rule := Rule{
+			StatusCodes: []int{200},
+			Text: &Text{
+				Equals: str("ok"),
+			},
+		}
+
+		err := rule.Evaluate(200, []byte("failed\r\ninvalid auth"))
+		if err == nil || err.Error() != "webhook HTTP 200: response did not match the acceptance rule: failed  invalid auth" {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	})
+}

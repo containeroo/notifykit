@@ -115,64 +115,104 @@ func (r Rule) Evaluate(statusCode int, body []byte) error {
 		return fmt.Errorf("invalid webhook HTTP status %d", statusCode)
 	}
 
-	accepted := statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices
-	if len(r.StatusCodes) != 0 {
-		accepted = false
-		for _, code := range r.StatusCodes {
-			if statusCode == code {
-				accepted = true
-				break
-			}
-		}
-	}
-
-	var matched = true
-	var detail string
-
-	if r.Text != nil {
-		text := string(body)
-		if r.Text.Equals != nil {
-			matched = text == *r.Text.Equals
-		} else {
-			matched = strings.Contains(text, *r.Text.Contains)
-		}
-		if !accepted || !matched {
-			detail = safeDetail(text)
-		}
-	}
-
-	if r.JSON != nil {
-		if !json.Valid(body) {
-			matched = false
-		} else {
-			var data any
-			decoder := json.NewDecoder(bytes.NewReader(body))
-			decoder.UseNumber()
-			if err := decoder.Decode(&data); err != nil {
-				matched = false
-			} else {
-				value, found := lookup(data, r.JSON.Pointer)
-				var expected any
-				expectedDecoder := json.NewDecoder(bytes.NewReader(r.JSON.Equals))
-				expectedDecoder.UseNumber()
-				if err := expectedDecoder.Decode(&expected); err != nil {
-					matched = false
-				} else {
-					matched = found && reflect.DeepEqual(value, expected)
-				}
-				if (!accepted || !matched) && r.JSON.ErrorPointer != "" {
-					if errorValue, ok := lookup(data, r.JSON.ErrorPointer); ok {
-						detail = scalarDetail(errorValue)
-					}
-				}
-			}
-		}
-	}
-
+	accepted := r.acceptsStatus(statusCode)
+	matched, detail := r.evaluateBody(body, accepted)
 	if accepted && matched {
 		return nil
 	}
 
+	return evaluationError(statusCode, accepted, detail)
+}
+
+// acceptsStatus checks the configured HTTP statuses, defaulting to 2xx.
+func (r Rule) acceptsStatus(statusCode int) bool {
+	if len(r.StatusCodes) == 0 {
+		return statusCode >= http.StatusOK && statusCode < http.StatusMultipleChoices
+	}
+
+	for _, code := range r.StatusCodes {
+		if statusCode == code {
+			return true
+		}
+	}
+	return false
+}
+
+// evaluateBody evaluates only the configured body matcher.
+func (r Rule) evaluateBody(body []byte, accepted bool) (bool, string) {
+	switch {
+	case r.Text != nil:
+		return r.Text.evaluate(string(body), accepted)
+	case r.JSON != nil:
+		return r.JSON.evaluate(body, accepted)
+	default:
+		return true, ""
+	}
+}
+
+// evaluate compares plain text and opts into reporting a bounded body on failure.
+func (t Text) evaluate(body string, accepted bool) (bool, string) {
+	matched := false
+	if t.Equals != nil {
+		matched = body == *t.Equals
+	} else {
+		matched = strings.Contains(body, *t.Contains)
+	}
+
+	if accepted && matched {
+		return true, ""
+	}
+	return matched, safeDetail(body)
+}
+
+// evaluate compares typed JSON values and optionally extracts an error field.
+func (j JSON) evaluate(body []byte, accepted bool) (bool, string) {
+	data, ok := decodeJSON(body)
+	if !ok {
+		return false, ""
+	}
+	expected, ok := decodeJSON(j.Equals)
+	if !ok {
+		return false, ""
+	}
+
+	actual, found := lookup(data, j.Pointer)
+	matched := found && reflect.DeepEqual(actual, expected)
+	if accepted && matched {
+		return true, ""
+	}
+	return matched, j.errorDetail(data)
+}
+
+// errorDetail extracts only an explicitly selected scalar JSON error value.
+func (j JSON) errorDetail(data any) string {
+	if j.ErrorPointer == "" {
+		return ""
+	}
+	value, found := lookup(data, j.ErrorPointer)
+	if !found {
+		return ""
+	}
+	return scalarDetail(value)
+}
+
+// decodeJSON rejects malformed or trailing data and preserves JSON number types.
+func decodeJSON(body []byte) (any, bool) {
+	if !json.Valid(body) {
+		return nil, false
+	}
+
+	var value any
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.UseNumber()
+	if err := decoder.Decode(&value); err != nil {
+		return nil, false
+	}
+	return value, true
+}
+
+// evaluationError formats a rejected response without exposing arbitrary JSON.
+func evaluationError(statusCode int, accepted bool, detail string) error {
 	reason := "response did not match the acceptance rule"
 	if !accepted {
 		reason = "unexpected HTTP status"
